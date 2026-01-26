@@ -1,0 +1,191 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": [
+    "market_identity",
+    "price_snapshot",
+    "fees",
+    "account_state",
+    "position_state",
+    "features_ltf",
+    "context_htf",
+    "risk_policy",
+    "market_meta",
+    "exchange_limits"
+  ],
+  "properties": {
+    "market_identity": {
+      "type": "object",
+      "required": ["exchange", "symbol", "timeframe", "timestamp_closed"],
+      "properties": {
+        "exchange": {"type": "string"},
+        "symbol": {"type": "string"},
+        "timeframe": {"type": "string"},
+        "timestamp_closed": {"type": "integer"}
+      }
+    },
+    "price_snapshot": {
+      "type": "object",
+      "required": ["last", "bid", "ask", "mark"],
+      "properties": {
+        "last": {"type": "number"},
+        "bid": {"type": "number"},
+        "ask": {"type": "number"},
+        "mark": {"type": "number"}
+      }
+    },
+    "fees": {
+      "type": "object",
+      "required": ["maker", "taker"],
+      "properties": {
+        "maker": {"type": "number"},
+        "taker": {"type": "number"}
+      }
+    },
+    "account_state": {
+      "type": "object",
+      "required": ["equity", "available", "margin_type", "leverage"],
+      "properties": {
+        "equity": {"type": "number"},
+        "available": {"type": "number"},
+        "margin_type": {"type": "string", "enum": ["isolated", "cross"]},
+        "leverage": {"type": "integer"}
+      }
+    },
+    "position_state": {
+      "type": "object",
+      "required": ["side", "qty", "entry", "unrealized_pnl", "liq_price"],
+      "properties": {
+        "side": {"type": ["string", "null"], "enum": ["LONG", "SHORT", null]},
+        "qty": {"type": "number"},
+        "entry": {"type": "number"},
+        "unrealized_pnl": {"type": "number"},
+        "liq_price": {"type": ["number", "null"]}
+      }
+    },
+    "features_ltf": {
+      "type": "object",
+      "required": [
+        "close",
+        "close_prev",
+        "high",
+        "low",
+        "ema50",
+        "ema120",
+        "donchian_high_240",
+        "donchian_low_240",
+        "atr14",
+        "atr14_sma20",
+        "donchian_high_20",
+        "donchian_low_20",
+        "consec_close_above_donchian_20",
+        "consec_close_below_donchian_20",
+        "bb_upper",
+        "bb_lower",
+        "bb_mid",
+        "candle_body_ratio",
+        "volume_ratio",
+        "rsi14",
+        "rsi14_prev",
+        "consec_above_ema50",
+        "consec_below_ema50",
+        "consec_above_ema50_prev",
+        "consec_below_ema50_prev",
+        "close_max_n",
+        "close_min_n",
+        "time_exit_bars"
+      ],
+      "properties": {
+        "close": {"type": "number"},
+        "close_prev": {"type": "number"},
+        "high": {"type": "number"},
+        "low": {"type": "number"},
+        "ema50": {"type": "number"},
+        "ema120": {"type": "number"},
+        "donchian_high_240": {"type": "number"},
+        "donchian_low_240": {"type": "number"},
+        "atr14": {"type": "number"},
+        "atr14_sma20": {"type": "number"},
+        "donchian_high_20": {"type": "number"},
+        "donchian_low_20": {"type": "number"},
+        "consec_close_above_donchian_20": {"type": "number"},
+        "consec_close_below_donchian_20": {"type": "number"},
+        "bb_upper": {"type": "number"},
+        "bb_lower": {"type": "number"},
+        "bb_mid": {"type": "number"},
+        "candle_body_ratio": {"type": "number"},
+        "volume_ratio": {"type": "number"},
+        "rsi14": {"type": "number"},
+        "rsi14_prev": {"type": "number"},
+        "consec_above_ema50": {"type": "number"},
+        "consec_below_ema50": {"type": "number"},
+        "consec_above_ema50_prev": {"type": "number"},
+        "consec_below_ema50_prev": {"type": "number"},
+        "close_max_n": {"type": "number"},
+        "close_min_n": {"type": "number"},
+        "time_exit_bars": {"type": "integer"}
+      }
+    },
+    "context_htf": {
+      "type": "object",
+      "required": [
+        "ema200",
+        "ema200_prev_n",
+        "ema200_slope_norm",
+        "consec_above_ema200",
+        "consec_below_ema200",
+        "consec_higher_close",
+        "consec_lower_close",
+        "close",
+        "trend",
+        "timeframe",
+        "atr14"
+      ],
+      "properties": {
+        "ema200": {"type": "number"},
+        "ema200_prev_n": {"type": "number"},
+        "ema200_slope_norm": {"type": "number"},
+        "consec_above_ema200": {"type": "number"},
+        "consec_below_ema200": {"type": "number"},
+        "consec_higher_close": {"type": "number"},
+        "consec_lower_close": {"type": "number"},
+        "close": {"type": "number"},
+        "trend": {"type": "string", "enum": ["up", "down", "range"]},
+        "atr14": {"type": "number"},
+        "timeframe": {"type": "string"}
+      }
+    },
+    "risk_policy": {
+      "type": "object",
+      "required": [
+        "risk_per_trade",
+        "max_daily_drawdown",
+        "max_consecutive_losses",
+        "min_rr"
+      ],
+      "properties": {
+        "risk_per_trade": {"type": "number"},
+        "max_daily_drawdown": {"type": "number"},
+        "max_consecutive_losses": {"type": "integer"},
+        "min_rr": {"type": "number"}
+      }
+    },
+    "market_meta": {
+      "type": "object",
+      "required": ["funding_rate", "funding_next_ts"],
+      "properties": {
+        "funding_rate": {"type": "number"},
+        "funding_next_ts": {"type": "integer"}
+      }
+    },
+    "exchange_limits": {
+      "type": "object",
+      "required": ["tick_size", "step_size", "min_qty"],
+      "properties": {
+        "tick_size": {"type": "number"},
+        "step_size": {"type": "number"},
+        "min_qty": {"type": "number"}
+      }
+    }
+  }
+}

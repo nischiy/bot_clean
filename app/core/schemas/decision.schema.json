@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["intent", "reject_reasons"],
+  "properties": {
+    "intent": {
+      "type": "string",
+      "enum": ["LONG", "SHORT", "HOLD", "CLOSE"]
+    },
+    "reject_reasons": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "entry": {
+      "type": "number"
+    },
+    "sl": {
+      "type": "number"
+    },
+    "tp": {
+      "type": "number"
+    },
+    "rr": {
+      "type": "number"
+    },
+    "strategy": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "integer"
+    }
+  }
+}

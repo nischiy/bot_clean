@@ -1,0 +1,306 @@
+from __future__ import annotations
+import time, hmac, hashlib, os, threading
+from urllib.parse import urlencode
+from typing import Dict, Any, Optional
+import requests
+from core.config import settings
+
+BINANCE_FAPI_BASE = (
+    settings.get_str("BASE_URL_TESTNET", "https://testnet.binancefuture.com")
+    if str(settings.get_str("BINANCE_TESTNET", "0")).strip().lower() in {"1", "true"}
+    else settings.get_str("BASE_URL_MAINNET", "https://fapi.binance.com")
+)
+
+API_KEY = settings.get_str("BINANCE_FAPI_KEY", "")
+API_SECRET = settings.get_str("BINANCE_FAPI_SECRET", "")
+_ORDER_MUTATING_PATHS = {
+    "/fapi/v1/order",
+    "/fapi/v1/allOpenOrders",
+    "/fapi/v1/batchOrders",
+    "/fapi/v1/leverage",
+    "/fapi/v1/marginType",
+}
+
+_TIME_OFFSET_LOCK = threading.Lock()
+_TIME_OFFSET_MS = 0
+_TIME_OFFSET_FETCH_TS = 0.0
+_TIME_SERVER_MS: Optional[int] = None
+_TIME_LOCAL_MS: Optional[int] = None
+
+
+def _local_time_ms() -> int:
+    return int(time.time() * 1000)
+
+
+def _fetch_server_time_ms() -> int:
+    resp = requests.get(BINANCE_FAPI_BASE + "/fapi/v1/time", timeout=settings.get_int("HTTP_TIMEOUT_SEC"))
+    resp.raise_for_status()
+    data = resp.json()
+    return int(data.get("serverTime"))
+
+
+def _get_time_offset_ms(force_refresh: bool = False) -> int:
+    global _TIME_OFFSET_MS, _TIME_OFFSET_FETCH_TS
+    ttl_sec = max(1, settings.get_int("BINANCE_TIME_OFFSET_TTL_SEC", 60))
+    now_ts = time.time()
+    if not force_refresh and _TIME_OFFSET_FETCH_TS and (now_ts - _TIME_OFFSET_FETCH_TS) < ttl_sec:
+        return _TIME_OFFSET_MS
+    with _TIME_OFFSET_LOCK:
+        now_ts = time.time()
+        if not force_refresh and _TIME_OFFSET_FETCH_TS and (now_ts - _TIME_OFFSET_FETCH_TS) < ttl_sec:
+            return _TIME_OFFSET_MS
+        try:
+            local_ms = _local_time_ms()
+            server_ms = _fetch_server_time_ms()
+            global _TIME_SERVER_MS, _TIME_LOCAL_MS
+            _TIME_SERVER_MS = int(server_ms)
+            _TIME_LOCAL_MS = int(local_ms)
+            _TIME_OFFSET_MS = int(server_ms - local_ms)
+            _TIME_OFFSET_FETCH_TS = now_ts
+        except Exception:
+            if not _TIME_OFFSET_FETCH_TS:
+                _TIME_OFFSET_MS = 0
+                _TIME_OFFSET_FETCH_TS = now_ts
+    return _TIME_OFFSET_MS
+
+
+def get_time_sync_snapshot(*, force_refresh: bool = False) -> Dict[str, Any]:
+    offset_ms = _get_time_offset_ms(force_refresh=force_refresh)
+    local_ms = _local_time_ms()
+    ttl_sec = max(1, settings.get_int("BINANCE_TIME_OFFSET_TTL_SEC", 60))
+    age_ms = int(max(0.0, time.time() - _TIME_OFFSET_FETCH_TS) * 1000) if _TIME_OFFSET_FETCH_TS else None
+    return {
+        "server_time_ms": _TIME_SERVER_MS,
+        "local_time_ms": _TIME_LOCAL_MS,
+        "offset_ms": offset_ms,
+        "ttl_sec": ttl_sec,
+        "age_ms": age_ms,
+        "request_ts": int(local_ms + offset_ms),
+    }
+
+
+def _ts() -> int:
+    return int(_local_time_ms() + _get_time_offset_ms())
+
+
+def _canonical_qs(params: Dict[str, Any]) -> str:
+    return urlencode(sorted(params.items()), doseq=True)
+
+
+def _redacted_query(canonical_qs: str) -> str:
+    return canonical_qs
+
+
+class BinanceRequestError(RuntimeError):
+    def __init__(self, message: str, diagnostics: Dict[str, Any]):
+        super().__init__(message)
+        self.diagnostics = diagnostics
+
+
+def _build_error_diagnostics(
+    *,
+    response: requests.Response,
+    path: str,
+    method: str,
+    canonical_qs: str,
+    request_url: str,
+) -> Dict[str, Any]:
+    code = None
+    msg = None
+    response_text_trim = None
+    content_type = response.headers.get("Content-Type")
+    try:
+        data = response.json()
+        if isinstance(data, dict):
+            code = data.get("code")
+            msg = data.get("msg")
+    except Exception:
+        response_text_trim = (response.text or "")[:500]
+    if msg is None and response_text_trim is None:
+        response_text_trim = (response.text or "")[:500]
+    return {
+        "binance_error_code": code,
+        "binance_error_msg": msg,
+        "response_text_trim": response_text_trim,
+        "content_type": content_type,
+        "request_endpoint": path,
+        "request_method": method,
+        "signed_params_snapshot": {
+            "query_string_no_signature": _redacted_query(canonical_qs),
+        },
+        "time_sync_snapshot": get_time_sync_snapshot(),
+        "http_status": response.status_code,
+        "request_url": request_url,
+    }
+
+def _sign(canonical_qs: str) -> str:
+    if not API_SECRET:
+        raise RuntimeError("BINANCE_FAPI_SECRET is not set")
+    return hmac.new(API_SECRET.encode(), canonical_qs.encode(), hashlib.sha256).hexdigest()
+
+def _headers() -> Dict[str, str]:
+    if not API_KEY:
+        raise RuntimeError("BINANCE_FAPI_KEY is not set")
+    return {"X-MBX-APIKEY": API_KEY, "Content-Type": "application/x-www-form-urlencoded"}
+
+def _block_order_mutation(path: str, *, method: Optional[str] = None) -> None:
+    is_mutation = path in _ORDER_MUTATING_PATHS
+    if method:
+        is_mutation = True
+    if is_mutation and (
+        settings.get_bool("LIVE_READONLY")
+        or settings.get_bool("SAFE_RUN")
+        or settings.get_bool("DRY_RUN_ONLY")
+    ):
+        raise RuntimeError("order_submission_blocked")
+
+def _get(path: str, params: Dict[str, Any], private: bool=False) -> Any:
+    url = BINANCE_FAPI_BASE + path
+    req_params = dict(params)
+    if private:
+        req_params["timestamp"] = int(_ts())
+        req_params["recvWindow"] = int(settings.get_int("BINANCE_RECV_WINDOW", 5000))
+        canonical_qs = _canonical_qs(req_params)
+        signature = _sign(canonical_qs)
+        request_url = f"{url}?{canonical_qs}&signature={signature}"
+        r = requests.get(request_url, headers=_headers(), timeout=settings.get_int("HTTP_TIMEOUT_SEC"))
+    else:
+        canonical_qs = _canonical_qs(req_params) if req_params else ""
+        request_url = f"{url}?{canonical_qs}" if canonical_qs else url
+        r = requests.get(request_url, timeout=settings.get_int("HTTP_TIMEOUT_SEC"))
+    try:
+        r.raise_for_status()
+    except requests.HTTPError as e:
+        diagnostics = _build_error_diagnostics(
+            response=r,
+            path=path,
+            method="GET",
+            canonical_qs=canonical_qs,
+            request_url=request_url,
+        )
+        raise BinanceRequestError(str(e), diagnostics) from e
+    return r.json()
+
+def _post(path: str, params: Dict[str, Any]) -> Any:
+    _block_order_mutation(path, method="POST")
+    url = BINANCE_FAPI_BASE + path
+    req_params = dict(params)
+    req_params["timestamp"] = int(_ts())
+    req_params["recvWindow"] = int(settings.get_int("BINANCE_RECV_WINDOW", 5000))
+    canonical_qs = _canonical_qs(req_params)
+    signature = _sign(canonical_qs)
+    request_url = f"{url}?{canonical_qs}&signature={signature}"
+    r = requests.post(request_url, headers=_headers(), timeout=settings.get_int("HTTP_TIMEOUT_SEC"))
+    try:
+        r.raise_for_status()
+    except requests.HTTPError as e:
+        diagnostics = _build_error_diagnostics(
+            response=r,
+            path=path,
+            method="POST",
+            canonical_qs=canonical_qs,
+            request_url=request_url,
+        )
+        raise BinanceRequestError(str(e), diagnostics) from e
+    return r.json()
+
+def _delete(path: str, params: Dict[str, Any]) -> Any:
+    _block_order_mutation(path, method="DELETE")
+    url = BINANCE_FAPI_BASE + path
+    req_params = dict(params)
+    req_params["timestamp"] = int(_ts())
+    req_params["recvWindow"] = int(settings.get_int("BINANCE_RECV_WINDOW", 5000))
+    canonical_qs = _canonical_qs(req_params)
+    signature = _sign(canonical_qs)
+    request_url = f"{url}?{canonical_qs}&signature={signature}"
+    r = requests.delete(request_url, headers=_headers(), timeout=settings.get_int("HTTP_TIMEOUT_SEC"))
+    try:
+        r.raise_for_status()
+    except requests.HTTPError as e:
+        diagnostics = _build_error_diagnostics(
+            response=r,
+            path=path,
+            method="DELETE",
+            canonical_qs=canonical_qs,
+            request_url=request_url,
+        )
+        raise BinanceRequestError(str(e), diagnostics) from e
+    return r.json()
+
+# ----- Public helpers -----
+def ping() -> bool:
+    try:
+        requests.get(BINANCE_FAPI_BASE + "/fapi/v1/ping", timeout=settings.get_int("HTTP_TIMEOUT_SEC"))
+        return True
+    except Exception:
+        return False
+
+def exchange_info(symbol: str) -> Any:
+    return _get("/fapi/v1/exchangeInfo", {"symbol": symbol}, private=False)
+
+def klines(symbol: str, interval: str, limit: int=500) -> Any:
+    return _get("/fapi/v1/klines", {"symbol": symbol, "interval": interval, "limit": limit}, private=False)
+
+# ----- Private trading -----
+def get_balance(asset: str="USDT") -> Optional[float]:
+    data = _get("/fapi/v2/balance", {}, private=True)
+    for it in data:
+        if it.get("asset") == asset:
+            # cross wallet + unrealized notional не додаємо - базовий баланс
+            return float(it.get("balance", 0.0))
+    return None
+
+def get_position(symbol: str) -> Dict[str, Any]:
+    arr = _get("/fapi/v2/positionRisk", {"symbol": symbol}, private=True)
+    return arr[0] if arr else {}
+
+def place_order(symbol: str, side: str, quantity: float, order_type: str="MARKET",
+                reduce_only: bool=False, price: Optional[float]=None, tp: Optional[float]=None, sl: Optional[float]=None,
+                time_in_force: str="GTC", position_side: Optional[str]=None) -> Dict[str, Any]:
+    """
+    side: BUY/SELL
+    order_type: MARKET/LIMIT
+    tp/sl: optional (attached as separate OCO-like? Binance USDT-M supports TP/SL as STOP/TAKE_PROFIT - тут робимо прості child ордери якщо задано)
+    """
+    params = {
+        "symbol": symbol,
+        "side": side.upper(),
+        "type": order_type.upper(),
+        "quantity": f"{quantity}",
+        "reduceOnly": "true" if reduce_only else "false"
+    }
+    if position_side:
+        params["positionSide"] = position_side
+    if order_type.upper() == "LIMIT":
+        if price is None:
+            raise ValueError("price is required for LIMIT")
+        params["price"] = f"{price}"
+        params["timeInForce"] = time_in_force
+
+    res = _post("/fapi/v1/order", params)
+
+    # Best-effort TP/SL (optional)
+    if tp is not None:
+        try:
+            _post("/fapi/v1/order", {
+                "symbol": symbol,
+                "side": "SELL" if side.upper()=="BUY" else "BUY",
+                "type": "TAKE_PROFIT_MARKET",
+                "stopPrice": f"{tp}",
+                "closePosition": "true"
+            })
+        except Exception:
+            pass
+    if sl is not None:
+        try:
+            _post("/fapi/v1/order", {
+                "symbol": symbol,
+                "side": "SELL" if side.upper()=="BUY" else "BUY",
+                "type": "STOP_MARKET",
+                "stopPrice": f"{sl}",
+                "closePosition": "true"
+            })
+        except Exception:
+            pass
+
+    return res

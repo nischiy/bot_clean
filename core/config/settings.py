@@ -1,0 +1,213 @@
+from __future__ import annotations
+
+from typing import Any, Optional
+
+from core.config.env import get_env, parse_bool
+
+DEFAULTS: dict[str, str] = {
+    # Runtime / Mode
+    "ENV": "production",
+    "SAFE_RUN": "1",
+    "LIVE_READONLY": "0",
+    "REPLAY_MODE": "0",
+    "OFFLINE_MODE": "0",
+    "PAPER_TRADING": "1",
+    "TRADE_ENABLED": "0",
+    "DRY_RUN_ONLY": "1",
+    "FORCE_RECONCILE": "0",
+    "DOTENV_DISABLE": "0",
+    "APP_RUN_ONESHOT": "0",
+    "RUNTIME_MODE": "",
+
+    # State / Ledger
+    "STATE_DIR": "run/state",
+    "LEDGER_DIR": "run/ledger",
+    "LEDGER_ENABLED": "1",
+
+    # Exchange / Symbol / Timeframes
+    "EXCHANGE": "binance_futures",
+    "SYMBOL": "BTCUSDT",
+    "INTERVAL": "5m",
+    "HTF_INTERVAL": "1h",
+    "QUOTE_ASSET": "USDT",
+    "BINANCE_TESTNET": "0",
+    "BINANCE_FAPI_BASE": "https://fapi.binance.com",
+    "BASE_URL_MAINNET": "https://fapi.binance.com",
+    "BASE_URL_TESTNET": "https://testnet.binancefuture.com",
+    "MARKET_DATA_MODULE": "app.services.market_data",
+
+    # Logging
+    "LOG_DIR": "logs",
+    "LOG_LEVEL": "INFO",
+    "LOOP_SLEEP_SEC": "5",
+    "LOG_SKIP_THROTTLE_SEC": "30",
+    "LOG_SKIP_AGG_SEC": "60",
+
+    # Strategy / Decision thresholds
+    "DECISION_VOLUME_RATIO_MIN": "1.5",
+    "DECISION_EMA50_ATR_MAX": "0.8",
+    "DECISION_BREAKOUT_ATR_MIN": "0.15",
+    "DECISION_SL_ATR_MULT": "1.6",
+    "DECISION_TP_ATR_MULT": "2.4",
+    "DECISION_MIN_RR": "1.5",
+    "MIN_RR": "1.5",
+    "TRADE_COOLDOWN_MINUTES": "15",
+
+    # Regime detection (5m)
+    "REGIME_BREAKOUT_VOL_MIN": "1.2",
+    "REGIME_COMPRESSION_WIDTH_ATR_MAX": "2.0",
+    "REGIME_COMPRESSION_VOL_MAX": "1.0",
+    "REGIME_TREND_DIST50_MAX": "1.0",
+
+    # Strategy routing thresholds
+    "BREAKOUT_ACCEPT_BARS": "2",
+    "BREAKOUT_REJECT_WICK_ATR": "0.3",
+    "BREAKOUT_RETEST_ATR": "0.2",
+    "BREAKOUT_SL_ATR": "1.0",
+    "BREAKOUT_RR_TARGET": "3.0",
+    "CONTINUATION_SL_ATR": "1.2",
+    "CONTINUATION_RR_TARGET": "1.6",
+    "PULLBACK_REENTRY_DIST50_MIN": "0.3",
+    "PULLBACK_REENTRY_DIST50_MAX": "1.5",
+    "PULLBACK_REENTRY_MIN_BARS": "2",
+    "PULLBACK_REENTRY_CONFIRM_BODY_MIN": "0.5",
+    "PULLBACK_REENTRY_RECLAIM_VOL_MIN": "1.0",
+    "PULLBACK_REENTRY_SL_ATR": "1.6",
+    "PULLBACK_REENTRY_RR_TARGET": "2.2",
+    "PULLBACK_REENTRY_VOL_MIN": "1.0",
+    "RANGE_MEANREV_EDGE_ATR": "0.2",
+    "RANGE_MEANREV_VOL_MAX": "1.0",
+    "RANGE_MEANREV_SL_ATR": "1.2",
+    "RANGE_MEANREV_RR_TARGET": "1.6",
+    "HTF_TREND_SLOPE_N": "8",
+    "HTF_TREND_SLOPE_MIN": "0.04",
+    "HTF_TREND_PERSIST_MIN": "4",
+    "HTF_TREND_STRUCTURE_MIN": "0",
+    "TIME_EXIT_BARS": "12",
+    "TIME_EXIT_PROGRESS_ATR": "0.5",
+
+    # Risk policy
+    "RISK_PER_TRADE_PCT": "5.0",
+    "RISK_MAX_DD_PCT_DAY": "3.0",
+    "RISK_MAX_CONSEC_LOSSES": "3",
+    "RISK_MAX_LOSS_USD_DAY": "10.0",
+    "RISK_MAX_OPEN_RISK_USD": "100.0",
+    "RISK_MAX_TRADES_PER_DAY": "50",
+    "RISK_MAX_POS_USD": "100.0",
+    "RISK_MIN_EQUITY_USD": "10.0",
+
+    # Position sizing / leverage
+    "LEVERAGE": "5",
+    "MAX_LEVERAGE": "5",
+    "PREFERRED_MAX_LEVERAGE": "5",
+    "RISK_MARGIN_FRACTION": "0.2",
+    "MAX_MARGIN_UTIL_PCT": "30.0",
+    "MIN_SL_TICKS": "10",
+    "ORDER_QTY_USD": "0",
+    "WALLET_USDT": "1000",
+
+    # ATR Budget sizing (optional)
+    "PS_K_BASE": "1.0",
+    "PS_K_MIN": "0.25",
+    "PS_K_MAX": "1.0",
+    "PS_K_SLOPE": "0.04",
+    "PS_RECOVERY_DD_PCT": "0.5",
+
+    # Market data validation
+    "MD_MIN_BARS_1H": "260",
+    "MD_MIN_BARS_4H": "220",
+    "MD_MAX_GAP_SECONDS": "7200",
+    "MD_MAX_AGE_SECONDS": "7200",
+    "DATA_MAX_AGE_SECONDS": "7200",
+
+    # Execution safety thresholds
+    "SPREAD_MAX_PCT": "0.5",
+    "ATR_SPIKE_MAX_PCT": "0.1",
+    "EXIT_REQUIRE_TP": "1",
+
+    # Execution timing / retries
+    "EXECUTION_POLL_INTERVAL_SEC": "0.5",
+    "EXECUTION_POLL_TIMEOUT_SEC": "10",
+    "EXECUTION_POLL_MAX_ATTEMPTS": "40",
+    "EXECUTION_RETRY_ATTEMPTS": "3",
+    "EXECUTION_RETRY_BASE_DELAY_SEC": "0.5",
+    "EXECUTION_RETRY_MAX_DELAY_SEC": "4.0",
+
+
+    # Fees / Funding
+    "FEE_MAKER_BPS": "2.0",
+    "FEE_TAKER_BPS": "4.0",
+    "FUNDING_RATE": "0",
+    "FUNDING_NEXT_TS": "0",
+    "FUNDING_INTERVAL_SECONDS": "28800",
+
+    # Market data / order adapter caches & timeouts
+    "PRICE_CACHE_TTL_SEC": "10",
+    "FILTERS_CACHE_TTL_SEC": "21600",
+    "HTTP_TIMEOUT_SEC": "10",
+    "SIZER_EXTRA_BUFFER_PCT": "0.02",
+    "ACCOUNT_SNAPSHOT_TTL_SEC": "45",
+
+
+    # SL/TP policies
+    "SL_MODE": "atr",
+    "TP_R_MULT": "1.5",
+    "SL_ATR_MULT": "1.5",
+    "SL_PCT": "0.5",
+    "TP_PCT": "1.0",
+}
+
+def env_default(name: str) -> Optional[str]:
+    return DEFAULTS.get(name)
+
+def get_str(name: str, default: Optional[str] = None) -> Optional[str]:
+    fallback = default if default is not None else env_default(name)
+    return get_env(name, fallback)
+
+def get_bool(name: str, default: Optional[bool] = None) -> bool:
+    if default is None:
+        default = parse_bool(env_default(name), False)
+    return parse_bool(get_env(name, None), default=default)
+
+def get_int(name: str, default: Optional[int] = None) -> int:
+    raw = get_env(name, env_default(name) if default is None else str(default))
+    try:
+        return int(float(str(raw).strip()))
+    except Exception:
+        return int(default or 0)
+
+def get_float(name: str, default: Optional[float] = None) -> float:
+    raw = get_env(name, env_default(name) if default is None else str(default))
+    try:
+        return float(str(raw).strip())
+    except Exception:
+        return float(default or 0.0)
+
+def get_optional_int(name: str) -> Optional[int]:
+    raw = get_env(name)
+    if raw is None or str(raw).strip() == "":
+        return None
+    try:
+        return int(float(str(raw).strip()))
+    except Exception:
+        return None
+
+def get_optional_float(name: str) -> Optional[float]:
+    raw = get_env(name)
+    if raw is None or str(raw).strip() == "":
+        return None
+    try:
+        return float(str(raw).strip())
+    except Exception:
+        return None
+
+__all__ = [
+    "DEFAULTS",
+    "env_default",
+    "get_str",
+    "get_bool",
+    "get_int",
+    "get_float",
+    "get_optional_int",
+    "get_optional_float",
+]

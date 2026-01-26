@@ -1,0 +1,63 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "symbol": {"type": "string"},
+    "side": {"type": "string", "enum": ["BUY", "SELL"]},
+    "type": {"type": "string", "enum": ["MARKET", "LIMIT"]},
+    "quantity": {"type": "number"},
+    "price": {"type": "number"},
+    "client_order_id": {"type": "string"},
+    "timeframe": {"type": "string"},
+    "action": {"type": "string", "enum": ["OPEN", "CLOSE"]},
+    "stop_loss": {
+      "type": "object",
+      "required": ["price", "client_order_id"],
+      "properties": {
+        "price": {"type": "number"},
+        "client_order_id": {"type": "string"}
+      }
+    },
+    "take_profit": {
+      "type": "object",
+      "required": ["price", "client_order_id"],
+      "properties": {
+        "price": {"type": "number"},
+        "client_order_id": {"type": "string"}
+      }
+    },
+    "leverage": {"type": "integer"},
+    "margin_type": {"type": "string", "enum": ["isolated", "cross"]},
+    "timestamp": {"type": "integer"}
+  },
+  "oneOf": [
+    {
+      "required": [
+        "symbol",
+        "side",
+        "type",
+        "quantity",
+        "client_order_id",
+        "stop_loss",
+        "take_profit",
+        "action"
+      ],
+      "properties": {
+        "action": {"const": "OPEN"}
+      }
+    },
+    {
+      "required": [
+        "symbol",
+        "side",
+        "type",
+        "quantity",
+        "client_order_id",
+        "action"
+      ],
+      "properties": {
+        "action": {"const": "CLOSE"}
+      }
+    }
+  ]
+}

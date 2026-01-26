@@ -1,0 +1,441 @@
+"""
+Execution Service: Idempotent execution layer that consumes ONLY trade_plan.json.
+All orders MUST use clientOrderId. Entry → confirm fill → immediately place SL and TP.
+"""
+from __future__ import annotations
+
+import logging
+import time
+import json
+import hashlib
+from typing import Dict, Any, Optional, List, Tuple
+
+from core.config import settings
+from core.runtime_mode import get_runtime_settings
+from app.core.validation import validate_trade_plan
+from app.state.state_manager import has_trade_identifier, save_trade_identifier, get_trade_identifier
+from app.services import notifications as net
+import core.exchange_private as exchange_private
+from app.services.exit_adapter import preview_exits
+from core.risk_guard import kill
+
+def _retry_call(fn, *, log: logging.Logger, label: str) -> Any:
+    attempts = settings.get_int("EXECUTION_RETRY_ATTEMPTS")
+    base_delay = settings.get_float("EXECUTION_RETRY_BASE_DELAY_SEC")
+    max_delay = settings.get_float("EXECUTION_RETRY_MAX_DELAY_SEC")
+    delay = base_delay
+    last_exc: Optional[BaseException] = None
+    for i in range(1, attempts + 1):
+        try:
+            return fn()
+        except Exception as e:
+            last_exc = e
+            if i < attempts:
+                log.warning("%s — retry %d/%d in %.2fs (err: %s)", label, i, attempts, delay, e)
+                time.sleep(delay)
+                delay = min(delay * 2, max_delay)
+    assert last_exc is not None
+    raise last_exc
+
+
+class ExecutionService:
+    """Idempotent execution service for trade_plan.json."""
+    
+    def __init__(self, logger: Optional[logging.Logger] = None):
+        self.log = logger or logging.getLogger("ExecutionService")
+        self.dry_run = settings.get_bool("DRY_RUN_ONLY")
+        self.safe_run = settings.get_bool("SAFE_RUN")
+        self.live_readonly = settings.get_bool("LIVE_READONLY")
+        self.runtime = get_runtime_settings()
+    
+    def execute_trade_plan(self, trade_plan: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Execute trade plan (idempotent).
+        
+        Steps:
+        1. Validate trade_plan.json
+        2. Check if client_order_id already exists (idempotency)
+        3. Set leverage if needed
+        4. Place entry order
+        5. Wait for fill confirmation
+        6. Place SL and TP orders
+        
+        Returns:
+            {
+                "executed": bool,
+                "reason": str,
+                "entry_order": Optional[Dict],
+                "sl_order": Optional[Dict],
+                "tp_order": Optional[Dict],
+                "errors": List[str]
+            }
+        """
+        errors = []
+
+        # 1. Validate trade plan
+        is_valid, validation_errors = validate_trade_plan(trade_plan)
+        if not is_valid:
+            errors.extend(validation_errors)
+            return {
+                "executed": False,
+                "reason": "invalid_trade_plan",
+                "entry_order": None,
+                "sl_order": None,
+                "tp_order": None,
+                "errors": errors
+            }
+        
+        action = trade_plan.get("action", "OPEN")
+        if self.live_readonly:
+            return self._live_readonly_response(trade_plan)
+
+        if self.safe_run:
+            return self._safe_run_response(trade_plan)
+
+        symbol = trade_plan.get("symbol")
+        client_order_id = trade_plan.get("client_order_id")
+        side = trade_plan.get("side")
+        quantity = trade_plan.get("quantity")
+        leverage = trade_plan.get("leverage")
+        margin_type = trade_plan.get("margin_type", "isolated")
+        stop_loss = trade_plan.get("stop_loss", {})
+        take_profit = trade_plan.get("take_profit", {})
+        
+        # 2. Check idempotency
+        trade_hash = _trade_plan_hash(trade_plan)
+        if has_trade_identifier(client_order_id):
+            stored = get_trade_identifier(client_order_id) or {}
+            stored_hash = stored.get("hash")
+            if stored_hash and stored_hash != trade_hash:
+                kill("execution_desync", {"client_order_id": client_order_id})
+                return {
+                    "executed": False,
+                    "reason": "trade_plan_mismatch",
+                    "entry_order": None,
+                    "sl_order": None,
+                    "tp_order": None,
+                    "errors": ["client_order_id_hash_mismatch"]
+                }
+            self.log.warning(f"Trade plan already executed: {client_order_id}")
+            return {
+                "executed": False,
+                "reason": "already_executed",
+                "entry_order": None,
+                "sl_order": None,
+                "tp_order": None,
+                "errors": ["duplicate_client_order_id"]
+            }
+        
+        # 3. DRY RUN mode
+        if self.dry_run or settings.get_bool("PAPER_TRADING") or self.runtime.is_paper:
+            self.log.info(f"DRY RUN: Would execute trade plan for {symbol}")
+            # Save identifier even in dry run to prevent duplicate processing
+            save_trade_identifier(client_order_id, trade_hash)
+            return {
+                "executed": False,
+                "reason": "dry_run",
+                "entry_order": {"client_order_id": client_order_id, "dry_run": True, "action": action},
+                "sl_order": {"client_order_id": stop_loss.get("client_order_id"), "dry_run": True} if isinstance(stop_loss, dict) and stop_loss else None,
+                "tp_order": {"client_order_id": take_profit.get("client_order_id"), "dry_run": True} if isinstance(take_profit, dict) and take_profit else None,
+                "errors": []
+            }
+
+        if action == "CLOSE":
+            return self._execute_close_plan(trade_plan, symbol=symbol, side=side, quantity=quantity, client_order_id=client_order_id)
+        
+        # 4. Persist identifier before any live submission
+        save_trade_identifier(client_order_id, trade_hash)
+
+        # 5. Set leverage
+        if leverage:
+            try:
+                with net.execution_context():
+                    _retry_call(
+                        lambda: net.set_leverage_via_rest(symbol, leverage),
+                        log=self.log,
+                        label=f"set_leverage({symbol},{leverage}) failed",
+                    )
+                self.log.info(f"Set leverage {leverage}x for {symbol}")
+            except Exception as e:
+                errors.append(f"set_leverage_failed: {e}")
+                self.log.error(f"Failed to set leverage: {e}")
+        
+        # 6. Place entry order
+        entry_order = None
+        try:
+            _log_ledger("execution_submitted", trade_plan)
+            with net.execution_context():
+                entry_order = _retry_call(
+                    lambda: net.place_order_via_rest(
+                        symbol=symbol,
+                        side=side,
+                        type=trade_plan.get("type", "MARKET"),
+                        quantity=quantity,
+                        newClientOrderId=client_order_id,
+                    ),
+                    log=self.log,
+                    label=f"place_order({symbol},{side},{trade_plan.get('type','MARKET')}) failed",
+                )
+            self.log.info(f"Entry order placed: {client_order_id}")
+            
+        except Exception as e:
+            errors.append(f"entry_order_failed: {e}")
+            self.log.error(f"Failed to place entry order: {e}")
+            return {
+                "executed": False,
+                "reason": "entry_order_failed",
+                "entry_order": None,
+                "sl_order": None,
+                "tp_order": None,
+                "errors": errors
+            }
+        
+        # 6. Wait for fill confirmation
+        order_id = entry_order.get("orderId") if isinstance(entry_order, dict) else None
+        filled, fill_details = self._wait_for_fill(symbol, order_id=order_id, client_order_id=client_order_id)
+        if not filled:
+            errors.append("entry_not_filled")
+            kill("execution_desync", {"client_order_id": client_order_id, "details": fill_details})
+            return {
+                "executed": False,
+                "reason": "entry_not_filled",
+                "entry_order": entry_order,
+                "sl_order": None,
+                "tp_order": None,
+                "errors": errors,
+            }
+        
+        # 7/8. Place SL/TP orders (reduceOnly + closePosition)
+        sl_order = None
+        tp_order = None
+        sl_price = stop_loss.get("price") if isinstance(stop_loss, dict) else None
+        tp_price = take_profit.get("price") if isinstance(take_profit, dict) else None
+        exit_plan = preview_exits(symbol, side, sl_price, tp_price)
+        for spec in exit_plan.get("orders", []):
+            try:
+                _log_ledger("sltp_submitted", trade_plan, {"type": spec.get("type")})
+                with net.execution_context():
+                    resp = _retry_call(
+                        lambda: net.place_order_via_rest(**spec),
+                        log=self.log,
+                        label=f"place_exit_order({symbol},{spec.get('type')}) failed",
+                    )
+                if spec.get("type") == "STOP_MARKET":
+                    sl_order = resp
+                elif spec.get("type") == "TAKE_PROFIT_MARKET":
+                    tp_order = resp
+            except Exception as e:
+                errors.append(f"exit_order_failed: {e}")
+                self.log.error(f"Failed to place exit order: {e}")
+        
+        executed = entry_order is not None and len(errors) == 0
+        
+        return {
+            "executed": executed,
+            "reason": "executed" if executed else "partial_failure",
+            "entry_order": entry_order,
+            "sl_order": sl_order,
+            "tp_order": tp_order,
+            "errors": errors
+        }
+
+    def _execute_close_plan(
+        self,
+        trade_plan: Dict[str, Any],
+        *,
+        symbol: str,
+        side: str,
+        quantity: float,
+        client_order_id: str,
+    ) -> Dict[str, Any]:
+        errors: List[str] = []
+        close_order = None
+        try:
+            _log_ledger("execution_submitted", trade_plan, {"action": "CLOSE"})
+            with net.execution_context():
+                close_order = _retry_call(
+                    lambda: net.place_order_via_rest(
+                        symbol=symbol,
+                        side=side,
+                        type=trade_plan.get("type", "MARKET"),
+                        quantity=quantity,
+                        reduceOnly=True,
+                        newClientOrderId=client_order_id,
+                    ),
+                    log=self.log,
+                    label=f"place_close_order({symbol},{side},{trade_plan.get('type','MARKET')}) failed",
+                )
+            self.log.info("Close order placed: %s", client_order_id)
+        except Exception as e:
+            errors.append(f"close_order_failed: {e}")
+            self.log.error("Failed to place close order: %s", e)
+            return {
+                "executed": False,
+                "reason": "close_order_failed",
+                "entry_order": None,
+                "sl_order": None,
+                "tp_order": None,
+                "errors": errors,
+            }
+
+        order_id = close_order.get("orderId") if isinstance(close_order, dict) else None
+        filled, fill_details = self._wait_for_fill(symbol, order_id=order_id, client_order_id=client_order_id)
+        if not filled:
+            errors.append("close_not_filled")
+            kill("execution_desync", {"client_order_id": client_order_id, "details": fill_details})
+            return {
+                "executed": False,
+                "reason": "close_not_filled",
+                "entry_order": close_order,
+                "sl_order": None,
+                "tp_order": None,
+                "errors": errors,
+            }
+
+        return {
+            "executed": True,
+            "reason": "executed",
+            "entry_order": close_order,
+            "sl_order": None,
+            "tp_order": None,
+            "errors": errors,
+        }
+
+    def _safe_run_response(self, trade_plan: Dict[str, Any]) -> Dict[str, Any]:
+        symbol = trade_plan.get("symbol")
+        client_order_id = trade_plan.get("client_order_id")
+        stop_loss = trade_plan.get("stop_loss", {}) if isinstance(trade_plan.get("stop_loss"), dict) else {}
+        take_profit = trade_plan.get("take_profit", {}) if isinstance(trade_plan.get("take_profit"), dict) else {}
+        action = trade_plan.get("action", "OPEN")
+        trade_hash = _trade_plan_hash(trade_plan)
+        self.log.info(
+            "SAFE_RUN: would place order symbol=%s side=%s qty=%s clientOrderId=%s sl=%s tp=%s",
+            symbol,
+            trade_plan.get("side"),
+            trade_plan.get("quantity"),
+            client_order_id,
+            stop_loss.get("price"),
+            take_profit.get("price"),
+        )
+        save_trade_identifier(client_order_id, trade_hash)
+        _log_ledger("execution_attempted", trade_plan, {"mode": "safe_run"})
+        return {
+            "executed": False,
+            "reason": "safe_run",
+            "entry_order": {"client_order_id": client_order_id, "safe_run": True, "action": action},
+            "sl_order": {"client_order_id": stop_loss.get("client_order_id"), "safe_run": True} if stop_loss else None,
+            "tp_order": {"client_order_id": take_profit.get("client_order_id"), "safe_run": True} if take_profit else None,
+            "errors": [],
+        }
+
+    def _live_readonly_response(self, trade_plan: Dict[str, Any]) -> Dict[str, Any]:
+        symbol = trade_plan.get("symbol")
+        client_order_id = trade_plan.get("client_order_id")
+        stop_loss = trade_plan.get("stop_loss", {}) if isinstance(trade_plan.get("stop_loss"), dict) else {}
+        take_profit = trade_plan.get("take_profit", {}) if isinstance(trade_plan.get("take_profit"), dict) else {}
+        action = trade_plan.get("action", "OPEN")
+        self.log.info(
+            "LIVE_READONLY: would place order symbol=%s side=%s qty=%s clientOrderId=%s sl=%s tp=%s",
+            symbol,
+            trade_plan.get("side"),
+            trade_plan.get("quantity"),
+            client_order_id,
+            stop_loss.get("price"),
+            take_profit.get("price"),
+        )
+        _log_ledger("execution_attempted", trade_plan, {"mode": "live_readonly", "result": "blocked_readonly"})
+        return {
+            "executed": False,
+            "reason": "blocked_readonly",
+            "entry_order": {"client_order_id": client_order_id, "live_readonly": True, "action": action},
+            "sl_order": {"client_order_id": stop_loss.get("client_order_id"), "live_readonly": True} if stop_loss else None,
+            "tp_order": {"client_order_id": take_profit.get("client_order_id"), "live_readonly": True} if take_profit else None,
+            "errors": [],
+        }
+
+    def _wait_for_fill(
+        self,
+        symbol: str,
+        *,
+        order_id: Optional[int],
+        client_order_id: Optional[str],
+    ) -> Tuple[bool, Dict[str, Any]]:
+        interval = settings.get_float("EXECUTION_POLL_INTERVAL_SEC")
+        timeout_sec = settings.get_float("EXECUTION_POLL_TIMEOUT_SEC")
+        max_attempts = settings.get_int("EXECUTION_POLL_MAX_ATTEMPTS")
+        deadline = time.time() + max(0.0, timeout_sec)
+        attempts = 0
+        last_error = None
+        last_payload = None
+        while attempts < max_attempts and time.time() <= deadline:
+            attempts += 1
+            try:
+                payload = net.get_order_via_rest(
+                    symbol=symbol, orderId=order_id, origClientOrderId=client_order_id
+                )
+                last_payload = payload
+                status = str(payload.get("status", "")).upper()
+                if status == "FILLED":
+                    return True, payload
+                if status in {"CANCELED", "REJECTED", "EXPIRED"}:
+                    return False, payload
+            except Exception as e:
+                last_error = str(e)
+            time.sleep(max(0.0, interval))
+        return False, {"last_error": last_error, "last_payload": last_payload}
+
+    def fetch_positions(self) -> list:
+        data = exchange_private.fetch_futures_private()
+        if isinstance(data, dict):
+            return data.get("positions") or []
+        return []
+
+    def get_open_orders(self, symbol: str) -> list:
+        orders = net.get_open_orders(symbol)
+        return orders if isinstance(orders, list) else orders.get("orders") or orders.get("data") or []
+
+    def get_position_snapshot(self, symbol: str) -> Dict[str, Any]:
+        positions = self.fetch_positions()
+        for pos in positions:
+            if pos.get("symbol") != symbol:
+                continue
+            amt = float(pos.get("positionAmt", 0) or 0.0)
+            if amt == 0:
+                break
+            side = "LONG" if amt > 0 else "SHORT"
+            return {
+                "side": side,
+                "qty": abs(amt),
+                "entry": float(pos.get("entryPrice", 0) or 0.0),
+                "unrealized_pnl": float(pos.get("unrealizedPnl", 0) or 0.0),
+                "liq_price": float(pos.get("liquidationPrice")) if pos.get("liquidationPrice") is not None else None,
+            }
+        return {"side": None, "qty": 0.0, "entry": 0.0, "unrealized_pnl": 0.0, "liq_price": None}
+
+    def plan_exit_orders(self, symbol: str, side_entry: str, sl: float | None, tp: float | None) -> Dict[str, Any]:
+        return preview_exits(symbol, side_entry, sl, tp)
+
+
+def _trade_plan_hash(trade_plan: Dict[str, Any]) -> str:
+    payload = json.dumps(trade_plan, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _log_ledger(event_type: str, trade_plan: Dict[str, Any], details: Optional[Dict[str, Any]] = None) -> None:
+    try:
+        from app.core.trade_ledger import append_event, hash_json
+    except Exception:
+        return
+    trade_plan_hash = hash_json(trade_plan) if isinstance(trade_plan, dict) else None
+    timeframe = trade_plan.get("timeframe") if isinstance(trade_plan, dict) else None
+    if not timeframe:
+        timeframe = settings.get_str("INTERVAL", "5m")
+    append_event(
+        event_type=event_type,
+        symbol=trade_plan.get("symbol", "?"),
+        timeframe=timeframe,
+        correlation_id=trade_plan.get("client_order_id") or "unknown",
+        trade_plan_hash=trade_plan_hash,
+        client_order_id=trade_plan.get("client_order_id"),
+        details=details or {},
+    )
