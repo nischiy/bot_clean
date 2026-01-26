@@ -19,7 +19,7 @@ def test_canonical_query_string_used_for_signing(monkeypatch):
         return SimpleNamespace(raise_for_status=lambda: None, json=lambda: {"ok": True})
 
     monkeypatch.setattr(binance_futures.requests, "get", _fake_get)
-    monkeypatch.setattr(binance_futures, "_ts", lambda: 1700000005000)
+    monkeypatch.setattr(binance_futures._TIME_SYNC, "get_timestamp_ms", lambda: 1700000005000)
 
     binance_futures._get("/fapi/v2/balance", {}, private=True)
 

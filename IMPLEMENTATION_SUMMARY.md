@@ -28,7 +28,7 @@ This document summarizes the implementation of a production-grade, canonical arc
 - Market identity: exchange, symbol, timeframe, timestamp_closed
 - Price snapshot: last, bid, ask, mark
 - Fees: maker, taker
-- Account state: equity, available, margin_type, leverage
+- Account state: equity, available, funds_base, funds_source, margin_type, leverage
 - Position state: side, qty, entry, unrealized_pnl, liq_price
 - 1h features: ema50, ema200, donchian_high_20, donchian_low_20, atr14, volume_ratio
 - 4h context: ema200, trend (up|down|range)
@@ -39,28 +39,17 @@ This document summarizes the implementation of a production-grade, canonical arc
 **Fail-Closed Behavior:**
 - Missing, NaN, or stale fields → payload fails validation → HOLD
 - Stale timestamp (>2h old) → rejection
+- Missing/invalid equity → explicit reject (payload invalid)
 
 ### 3. Strategy → decision.json (INTENT ONLY)
 **Location:** `app/strategy/decision_engine.py`
 
 **Function:** `make_decision(payload) → decision.json`
 
-**Strategy Rules:**
-- **LONG:**
-  - close_1h > ema200_1h
-  - close_1h > donchian_high_20
-  - volume_ratio >= 1.2
-  - (close_1h - ema50_1h) / atr14 <= 2.0
-- **SHORT:**
-  - close_1h < ema200_1h
-  - close_1h < donchian_low_20
-  - volume_ratio >= 1.2
-  - (ema50_1h - close_1h) / atr14 <= 2.0
-
-**Risk Management:**
-- SL = entry ± 1.8 * ATR
-- TP = entry ± 3.0 * ATR
-- RR >= min_rr (from risk policy)
+**Strategy Rules (Regime-based):**
+- **Regimes:** BREAKOUT_EXPANSION, TREND_CONTINUATION, PULLBACK, RANGE, COMPRESSION
+- **Routing:** uses `regime_used_for_routing` with optional override for verification
+- **Risk:** SL/TP are ATR-based per strategy targets; RR must meet `min_rr`
 
 **Validation:**
 - Validates against decision.schema.json
@@ -86,14 +75,24 @@ This document summarizes the implementation of a production-grade, canonical arc
 
 **Position Sizing:**
 - Location: `app/risk/position_sizing.py`
-- Formula: `risk_usd = equity * risk_per_trade`, `qty = risk_usd / abs(entry - sl)`
-- Respects step_size and min_qty
-- Leverage ≤ 5x, isolated margin
+- Formula: `risk_usd = funds_base * risk_per_trade`, `qty = risk_usd / abs(entry - sl)`
+- Respects step_size and min_qty; re-checks margin after rounding
+- Margin check: `required_margin = (qty * entry) / leverage`
 
 **Output:**
 - Only produces trade_plan.json if ALL checks pass
 - Validates against trade_plan.schema.json
 - Otherwise returns HOLD with reasons
+
+### 4a. TimeSync (Binance Futures)
+- **Module:** `core.execution.binance_futures.TimeSync`
+- **Behavior:** TTL-based offset refresh, signed endpoints always use TimeSync timestamp
+- **Retry:** on `-1021`, force refresh and retry once
+
+### 4b. decision_clean Evidence
+- **Fields:** `equity`, `funds_base`, `funds_source`, `risk_usd`, `qty_before_rounding`, `qty_after_rounding`,
+  `required_margin`, `leverage_used`, `regime_detected`, `regime_used_for_routing`,
+  `eligible_strategies`, `selected_strategy`, `blockers`, `blocker_categories`
 
 ### 5. State Management (Restart Safety + Reconciliation)
 **Location:** `app/state/state_manager.py`
@@ -197,7 +196,7 @@ This document summarizes the implementation of a production-grade, canonical arc
 1. ✅ Modules communicate ONLY via validated JSON objects
 2. ✅ Exactly three contracts: payload.json, decision.json, trade_plan.json
 3. ✅ Fail-closed validation (payload → HARD FAIL, decision → HOLD, trade_plan → HARD STOP)
-4. ✅ Decisions made ONLY on CLOSED 1h candles
+4. ✅ Decisions made ONLY on CLOSED 5m candles (HTF=1h context)
 5. ✅ Risk Manager is FINAL authority
 6. ✅ Execution layer accepts ONLY trade_plan.json
 7. ✅ System is restart-safe and idempotent
@@ -209,5 +208,9 @@ This document summarizes the implementation of a production-grade, canonical arc
 
 ## Dependencies
 
-- `jsonschema`: Added to requirements.txt for JSON schema validation
-- All other dependencies remain unchanged
+- `jsonschema`: JSON schema validation
+- `python-binance`: Binance client utilities (requirements consistency)
+
+## Exchange Snapshot
+- **Account endpoint:** prefer `/fapi/v3/account`, fallback `/fapi/v2/account`
+- **Balances:** `/fapi/v2/balance` remains supported

@@ -50,6 +50,20 @@ This document summarizes the latest production-hardening updates.
 - **Hard guard:** REST placement functions raise even if SAFE_RUN/DRY_RUN_ONLY are off
 
 ### Deterministic Replay
+### Funds-Base Risk Sizing
+- **Canonical base:** `funds_base = min(availableBalance, totalMarginBalance)` when both exist
+- **Fail-closed:** missing/nonpositive funds → explicit reject
+- **Margin pre-check:** `required_margin = (qty * entry) / leverage` after rounding
+
+### TimeSync Robustness
+- **Component:** `core.execution.binance_futures.TimeSync`
+- **Behavior:** TTL-based offset refresh + one retry on `-1021`
+- **Signed endpoints:** always use server time offset
+
+### Regime Routing + Logging
+- **Routing:** explicit `regime_used_for_routing`, with override gated to non-production/test/offline/replay
+- **Blockers:** `M:regime` only when routing differs from detection
+- **decision_clean:** includes equity plus funds/sizing and routing fields
 - **CLI:** `python -m app.replay --from YYYY-MM-DD --to YYYY-MM-DD [--symbol BTCUSDT]`
 - **Uses:** real pipeline, SAFE_RUN enforced, ledger + state writes
 - **Summary:** holds / trade intents / blocked trades / drawdown / streaks
@@ -61,7 +75,7 @@ This document summarizes the latest production-hardening updates.
 
 ## Key Environment Variables
 
-- Runtime: `ENV`, `RUNTIME_MODE`, `SAFE_RUN`, `LIVE_READONLY`, `REPLAY_MODE`
+- Runtime: `ENV`, `RUNTIME_MODE`, `SAFE_RUN`, `LIVE_READONLY`, `REPLAY_MODE`, `ROUTING_REGIME_OVERRIDE` (non-production/test/offline/replay only)
 - State/Ledger: `STATE_DIR`, `LEDGER_DIR`, `LEDGER_ENABLED`
 - Data validation: `MD_MIN_BARS_1H`, `MD_MIN_BARS_4H`, `MD_MAX_GAP_SECONDS`, `MD_MAX_AGE_SECONDS`
 - Risk/Execution: `SPREAD_MAX_PCT`, `ATR_SPIKE_MAX_PCT`, `EXIT_REQUIRE_TP`

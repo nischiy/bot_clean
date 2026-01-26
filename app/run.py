@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os
+import math
 import json
 import sys
 import time
@@ -693,14 +694,77 @@ def _log_structured(logger: logging.Logger, event: str, payload: Dict[str, Any])
     except Exception:
         logger.info("event=%s payload=%s", event, payload)
 
+def _prioritize_blockers(blockers: List[str]) -> List[str]:
+    if not blockers:
+        return []
+    seen = set()
+
+    def _uniq(items: List[str]) -> List[str]:
+        ordered: List[str] = []
+        for item in items:
+            if item in seen:
+                continue
+            seen.add(item)
+            ordered.append(item)
+        return ordered
+
+    funds_blockers = [b for b in blockers if b in ("funds_source_missing", "funds_nonpositive")]
+    if funds_blockers:
+        return _uniq(funds_blockers)
+
+    sizing_prefixes = (
+        "min_qty_not_met_after_rounding",
+        "invalid_entry",
+        "invalid_sl",
+        "invalid_step_size",
+        "invalid_min_qty",
+        "invalid_sl_distance",
+        "invalid_leverage",
+    )
+    sizing_blockers = [b for b in blockers if any(str(b).startswith(p) for p in sizing_prefixes)]
+    if sizing_blockers:
+        return _uniq(sizing_blockers)
+
+    margin_blockers = [b for b in blockers if str(b).startswith("insufficient_margin")]
+    strategy_blockers = [
+        b
+        for b in blockers
+        if isinstance(b, str)
+        and any(b.startswith(prefix) for prefix in ("T:", "B:", "M:", "P:", "C:", "R:", "X:"))
+    ]
+    other_blockers = [
+        b
+        for b in blockers
+        if b not in margin_blockers and b not in strategy_blockers
+    ]
+    return _uniq([*margin_blockers, *strategy_blockers, *other_blockers])
+
 
 def _log_decision_clean(logger: logging.Logger, decision_log: Dict[str, Any]) -> None:
-    blockers = list(decision_log.get("reject_reasons") or [])
+    blockers = _prioritize_blockers(list(decision_log.get("reject_reasons") or []))
+    categories = []
+    for code in blockers:
+        if not isinstance(code, str) or ":" not in code:
+            continue
+        prefix = code.split(":", 1)[0]
+        if prefix and prefix not in categories:
+            categories.append(prefix)
     payload = {
-        "regime": decision_log.get("regime_detected") or decision_log.get("regime"),
+        "regime_detected": decision_log.get("regime_detected"),
+        "regime_used_for_routing": decision_log.get("regime_used_for_routing"),
         "selected_strategy": decision_log.get("selected_strategy"),
+        "eligible_strategies": decision_log.get("eligible_strategies"),
         "decision": decision_log.get("decision"),
+        "equity": decision_log.get("equity"),
+        "funds_base": decision_log.get("funds_base"),
+        "funds_source": decision_log.get("funds_source"),
+        "risk_usd": decision_log.get("risk_usd"),
+        "qty_before_rounding": decision_log.get("qty_before_rounding"),
+        "qty_after_rounding": decision_log.get("qty_after_rounding"),
+        "required_margin": decision_log.get("required_margin"),
+        "leverage_used": decision_log.get("leverage_used"),
         "blockers": blockers[:6],
+        "blocker_categories": categories[:6],
     }
     _log_structured(logger, "decision_clean", payload)
 
@@ -784,6 +848,9 @@ def _emit_tick_summary(
 def _build_explain_fields(payload: Dict[str, Any], decision: Dict[str, Any]) -> Dict[str, Any]:
     signal = decision.get("signal") or {}
     price_snapshot = payload.get("price_snapshot", {})
+    account_state = payload.get("account_state", {})
+    risk_policy = payload.get("risk_policy", {})
+    exchange_limits = payload.get("exchange_limits", {})
     bid = price_snapshot.get("bid")
     ask = price_snapshot.get("ask")
     last = price_snapshot.get("last")
@@ -794,11 +861,37 @@ def _build_explain_fields(payload: Dict[str, Any], decision: Dict[str, Any]) -> 
             spread_pct = abs(float(ask) - float(bid)) / float(last) * 100.0
         except Exception:
             spread_pct = None
+    funds_base = account_state.get("funds_base")
+    funds_source = account_state.get("funds_source")
+    leverage_used = account_state.get("leverage")
+    risk_per_trade = risk_policy.get("risk_per_trade")
+    entry = decision.get("entry")
+    sl = decision.get("sl")
+    step_size = exchange_limits.get("step_size")
+    risk_usd = None
+    qty_before_rounding = None
+    qty_after_rounding = None
+    required_margin = None
+    try:
+        if funds_base is not None and risk_per_trade is not None:
+            risk_usd = float(funds_base) * float(risk_per_trade)
+        if risk_usd is not None and entry is not None and sl is not None:
+            sl_distance = abs(float(entry) - float(sl))
+            if sl_distance > 0:
+                qty_before_rounding = risk_usd / sl_distance
+        if qty_before_rounding is not None and step_size is not None and float(step_size) > 0:
+            qty_after_rounding = math.floor(qty_before_rounding / float(step_size)) * float(step_size)
+        if qty_after_rounding is not None and entry is not None and leverage_used is not None and float(leverage_used) > 0:
+            required_margin = (qty_after_rounding * float(entry)) / float(leverage_used)
+    except Exception:
+        pass
+
     return {
         "trend": signal.get("trend"),
         "direction": signal.get("direction"),
         "regime": signal.get("regime"),
         "regime_detected": signal.get("regime_detected"),
+        "regime_used_for_routing": signal.get("regime_used_for_routing"),
         "trend_strength": signal.get("trend_strength"),
         "trend_stable_long": signal.get("trend_stable_long"),
         "trend_stable_short": signal.get("trend_stable_short"),
@@ -874,6 +967,13 @@ def _build_explain_fields(payload: Dict[str, Any], decision: Dict[str, Any]) -> 
         "close_min_n": signal.get("close_min_n"),
         "spread_pct": spread_pct,
         "atr": signal.get("atr"),
+        "funds_base": funds_base,
+        "funds_source": funds_source,
+        "risk_usd": risk_usd,
+        "qty_before_rounding": qty_before_rounding,
+        "qty_after_rounding": qty_after_rounding,
+        "required_margin": required_margin,
+        "leverage_used": leverage_used,
         "close_ltf": close_ltf,
         "close_prev_ltf": signal.get("close_prev_ltf"),
         "ema50_ltf": signal.get("ema50_ltf"),
@@ -910,9 +1010,18 @@ def _build_decision_log(
         "ask": price_snapshot.get("ask"),
         "spread_pct": explain_fields.get("spread_pct"),
         "atr": explain_fields.get("atr"),
+        "equity": payload.get("account_state", {}).get("equity"),
+        "funds_base": explain_fields.get("funds_base"),
+        "funds_source": explain_fields.get("funds_source"),
+        "risk_usd": explain_fields.get("risk_usd"),
+        "qty_before_rounding": explain_fields.get("qty_before_rounding"),
+        "qty_after_rounding": explain_fields.get("qty_after_rounding"),
+        "required_margin": explain_fields.get("required_margin"),
+        "leverage_used": explain_fields.get("leverage_used"),
         "atr14_5m": explain_fields.get("atr"),
         "regime": explain_fields.get("regime"),
         "regime_detected": explain_fields.get("regime_detected"),
+        "regime_used_for_routing": explain_fields.get("regime_used_for_routing"),
         "direction": explain_fields.get("direction"),
         "trend_strength": explain_fields.get("trend_strength"),
         "trend_stable_long": explain_fields.get("trend_stable_long"),
@@ -1019,9 +1128,29 @@ def _fetch_account_snapshot(wallet_usdt: Optional[float], ts: float) -> Dict[str
             "binance_error_msg": str(e),
         }
 
+    def _flt(val: Any) -> Optional[float]:
+        try:
+            return float(val)
+        except Exception:
+            return None
+
     balances = data.get("balances") if isinstance(data, dict) else None
+    account_info = data.get("account") if isinstance(data, dict) else None
     equity_usd = None
     wallet_val = None
+    available_usd = None
+    total_margin = None
+    total_wallet = None
+    if isinstance(account_info, dict):
+        available_usd = _flt(account_info.get("available_balance"))
+        total_margin = _flt(account_info.get("total_margin_balance"))
+        total_wallet = _flt(account_info.get("total_wallet_balance"))
+        if total_margin is not None and total_margin > 0:
+            equity_usd = total_margin
+        elif total_wallet is not None and total_wallet > 0:
+            equity_usd = total_wallet
+        if total_wallet is not None and total_wallet > 0:
+            wallet_val = total_wallet
     if isinstance(balances, dict):
         for key in ("USDT", "BUSD", "USDC"):
             if key in balances:
@@ -1030,8 +1159,10 @@ def _fetch_account_snapshot(wallet_usdt: Optional[float], ts: float) -> Dict[str
                 except Exception:
                     continue
                 if val > 0:
-                    equity_usd = val
-                    wallet_val = val
+                    if equity_usd is None:
+                        equity_usd = val
+                    if wallet_val is None:
+                        wallet_val = val
                     break
 
     source = "exchange" if equity_usd is not None else "missing"
@@ -1058,9 +1189,16 @@ def _fetch_account_snapshot(wallet_usdt: Optional[float], ts: float) -> Dict[str
             wallet_val = float(fallback)
             source = "fallback"
             reason = reason or "fallback_wallet_usdt"
+    if available_usd is None and _allow_offline_fallback():
+        fallback = wallet_usdt if wallet_usdt is not None else _get_wallet_usdt()
+        if fallback is not None:
+            available_usd = float(fallback)
 
     return {
         "equity_usd": equity_usd,
+        "available_usd": available_usd,
+        "total_margin_usd": total_margin,
+        "total_wallet_usd": total_wallet,
         "wallet_usdt": wallet_val,
         "source": source,
         "reason": reason,
@@ -1177,6 +1315,7 @@ def _validate_preflight(
     rejects: List[str] = []
     rejects_meta: List[Dict[str, Any]] = []
     equity_val = account.get("equity_usd")
+    available_val = account.get("available_usd")
     wallet_val = account.get("wallet_usdt")
     acc_category = account.get("error_category")
     acc_reason = account.get("error_reason")
@@ -1228,6 +1367,9 @@ def _validate_preflight(
         if equity_val is None or float(equity_val or 0.0) <= 0:
             detail = account.get("reason") or account.get("source")
             rejects.append(f"missing_account_equity:{detail}" if detail else "missing_account_equity")
+        if available_val is None or float(available_val or 0.0) <= 0:
+            detail = account.get("reason") or account.get("source")
+            rejects.append(f"missing_account_available:{detail}" if detail else "missing_account_available")
         if wallet_val is None or float(wallet_val or 0.0) <= 0:
             detail = account.get("reason") or account.get("source")
             rejects.append(f"missing_wallet_usdt:{detail}" if detail else "missing_wallet_usdt")

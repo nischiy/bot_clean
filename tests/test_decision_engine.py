@@ -206,6 +206,16 @@ def test_decision_candle_explainability_fields(valid_payload_long):
     if not _JSONSCHEMA_AVAILABLE:
         pytest.skip("jsonschema required for decision explainability test")
 
+    valid_payload_long["account_state"] = {
+        "funds_base": 100.0,
+        "funds_source": "available_balance",
+        "leverage": 5,
+    }
+    valid_payload_long["exchange_limits"] = {
+        "step_size": 0.001,
+    }
+    valid_payload_long["risk_policy"]["risk_per_trade"] = 0.05
+
     decision = make_decision(valid_payload_long)
     explain_fields = run._build_explain_fields(valid_payload_long, decision)
     decision_log = run._build_decision_log(
@@ -237,6 +247,12 @@ def test_decision_candle_explainability_fields(valid_payload_long):
     assert isinstance(decision_log["volume_ratio_5m"], numbers.Real)
     assert isinstance(decision_log["breakout_long"], bool)
     assert isinstance(decision_log["breakout_short"], bool)
+    assert decision_log["regime_used_for_routing"] == decision_log["regime_detected"]
+    assert isinstance(decision_log["risk_usd"], numbers.Real)
+    assert isinstance(decision_log["qty_before_rounding"], numbers.Real)
+    assert isinstance(decision_log["qty_after_rounding"], numbers.Real)
+    assert isinstance(decision_log["required_margin"], numbers.Real)
+    assert decision_log["leverage_used"] == 5
 
 
 def test_make_decision_hold():
@@ -287,6 +303,83 @@ def test_make_decision_hold():
     
     assert decision["intent"] == "HOLD"
     assert len(decision["reject_reasons"]) > 0
+
+
+def test_hold_rejects_use_routed_regime(monkeypatch, valid_payload_long):
+    payload = copy.deepcopy(valid_payload_long)
+    payload["features_ltf"]["ema50"] = -1.0
+    payload["features_ltf"]["bb_upper"] = -1.0
+    payload["features_ltf"]["bb_lower"] = -1.0
+    payload["features_ltf"]["bb_mid"] = -1.0
+    decision = make_decision(payload)
+    assert decision["intent"] == "HOLD"
+    rejects = decision.get("reject_reasons") or []
+    assert len(rejects) > 0
+    assert all(not code.startswith("M:regime") for code in rejects)
+
+
+def test_strategy_ineligible_only_for_routed_regime(valid_payload_long):
+    payload = copy.deepcopy(valid_payload_long)
+    payload["features_ltf"]["close"] = 1300.0
+    payload["features_ltf"]["close_prev"] = 1200.0
+    payload["features_ltf"]["ema50"] = 1000.0
+    payload["features_ltf"]["donchian_high_20"] = 2000.0
+    payload["features_ltf"]["donchian_low_20"] = 900.0
+    payload["features_ltf"]["volume_ratio"] = 0.5
+    payload["price_snapshot"]["last"] = 1300.0
+    payload["price_snapshot"]["mark"] = 1300.0
+    payload["price_snapshot"]["bid"] = 1299.0
+    payload["price_snapshot"]["ask"] = 1301.0
+    decision = make_decision(payload)
+    assert decision.get("signal", {}).get("regime_detected") == "PULLBACK"
+    rejects = decision.get("reject_reasons") or []
+    assert "P:strategy_ineligible" in rejects
+    assert all(not code.startswith("M:strategy_ineligible") for code in rejects)
+
+
+def test_regime_mismatch_emits_m_regime(monkeypatch, valid_payload_long):
+    monkeypatch.setenv("ROUTING_REGIME_OVERRIDE", "RANGE")
+    payload = copy.deepcopy(valid_payload_long)
+    payload["features_ltf"]["close"] = 1300.0
+    payload["features_ltf"]["close_prev"] = 1200.0
+    payload["features_ltf"]["ema50"] = 1000.0
+    payload["features_ltf"]["donchian_high_20"] = 2000.0
+    payload["features_ltf"]["donchian_low_20"] = 900.0
+    payload["features_ltf"]["volume_ratio"] = 0.5
+    payload["price_snapshot"]["last"] = 1300.0
+    payload["price_snapshot"]["mark"] = 1300.0
+    payload["price_snapshot"]["bid"] = 1299.0
+    payload["price_snapshot"]["ask"] = 1301.0
+    decision = make_decision(payload)
+    rejects = decision.get("reject_reasons") or []
+    assert "M:regime" in rejects
+
+
+def test_routing_override_blocked_in_production(monkeypatch, valid_payload_long):
+    from core.runtime_mode import reset_runtime_settings
+
+    monkeypatch.setenv("ENV", "production")
+    monkeypatch.setenv("RUNTIME_MODE", "live")
+    monkeypatch.setenv("ROUTING_REGIME_OVERRIDE", "RANGE")
+    reset_runtime_settings()
+
+    payload = copy.deepcopy(valid_payload_long)
+    payload["features_ltf"]["close"] = 1300.0
+    payload["features_ltf"]["close_prev"] = 1200.0
+    payload["features_ltf"]["ema50"] = 1000.0
+    payload["features_ltf"]["donchian_high_20"] = 2000.0
+    payload["features_ltf"]["donchian_low_20"] = 900.0
+    payload["features_ltf"]["volume_ratio"] = 0.5
+    payload["price_snapshot"]["last"] = 1300.0
+    payload["price_snapshot"]["mark"] = 1300.0
+    payload["price_snapshot"]["bid"] = 1299.0
+    payload["price_snapshot"]["ask"] = 1301.0
+
+    decision = make_decision(payload)
+    signal = decision.get("signal", {})
+    rejects = decision.get("reject_reasons") or []
+    assert signal.get("regime_used_for_routing") == signal.get("regime_detected")
+    assert all(not code.startswith("M:regime") for code in rejects)
 
 
 def test_make_decision_already_in_position():

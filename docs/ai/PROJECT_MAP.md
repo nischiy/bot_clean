@@ -59,6 +59,7 @@
 - Filesystem access: no.
 - Environment access: yes (risk policy defaults).
 - Import-time side effects: none.
+ - Notes: derives `funds_base = min(availableBalance, totalMarginBalance)` when both exist.
 
 ### `app/data/market_data_validator.py` (NEW)
 - Responsibility: validate market data integrity before payload building.
@@ -77,7 +78,7 @@
 - MUST NOT: side effects, network calls, execution authority.
 - Network access: no.
 - Filesystem access: no.
-- Environment access: no.
+- Environment access: yes (reads thresholds and routing override via settings).
 - Import-time side effects: none.
 
 ### `app/risk/risk_manager.py` (NEW)
@@ -89,6 +90,7 @@
 - Filesystem access: no.
 - Environment access: no (uses payload risk_policy).
 - Import-time side effects: none.
+ - Notes: rejects on missing/nonpositive `funds_base`.
 
 ### `app/risk/position_sizing.py` (NEW)
 - Responsibility: risk-based position sizing with leverage caps.
@@ -98,6 +100,7 @@
 - Filesystem access: no.
 - Environment access: no.
 - Import-time side effects: none.
+ - Notes: uses funds_base for sizing and re-checks margin after rounding.
 
 ### `app/state/state_manager.py` (NEW)
 - Responsibility: persist state for restart safety and reconciliation.
@@ -217,6 +220,7 @@
 - Filesystem access: no.
 - Environment access: yes (API keys, testnet flag).
 - Import-time side effects: none.
+ - Notes: prefers `/fapi/v3/account`, fallback `/fapi/v2/account`.
 
 ### `core/execution/binance_futures.py`
 - Responsibility: REST helpers for Binance Futures.
@@ -226,6 +230,7 @@
 - Filesystem access: no.
 - Environment access: yes (API keys, testnet flag).
 - Import-time side effects: none.
+ - Notes: TimeSync used for all signed endpoints; retry-on-`-1021`.
 
 ### `core/logic/ema_rsi_atr.py`
 - Responsibility: strategy computation.

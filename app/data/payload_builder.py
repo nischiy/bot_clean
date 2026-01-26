@@ -409,18 +409,36 @@ def build_payload(
     
     # Account state
     equity = _safe_float(account_snapshot.get("equity_usd") or account_snapshot.get("equity"))
-    available = _safe_float(account_snapshot.get("available") or account_snapshot.get("wallet_usdt"))
+    available = _safe_float(
+        account_snapshot.get("available_usd")
+        or account_snapshot.get("available")
+        or account_snapshot.get("wallet_usdt")
+    )
+    total_margin = _safe_float(account_snapshot.get("total_margin_usd") or account_snapshot.get("total_margin_balance"))
+    funds_base = None
+    funds_source = None
+    if available is not None and total_margin is not None:
+        funds_base = min(available, total_margin)
+        funds_source = "min(available_balance,total_margin_balance)"
+    elif available is not None:
+        funds_base = available
+        funds_source = "available_balance"
     margin_type = account_snapshot.get("margin_type", "isolated")
     leverage = settings.get_int("LEVERAGE")
     
     if equity is None or equity <= 0:
         errors.append("missing_or_invalid_equity")
-    if available is None:
-        errors.append("missing_available")
+    if funds_base is None:
+        errors.append("funds_source_missing")
+    elif funds_base <= 0:
+        errors.append("funds_nonpositive")
     
     account_state = {
         "equity": equity or 0.0,
         "available": available or 0.0,
+        "funds_base": funds_base if funds_base is not None else 0.0,
+        "funds_source": funds_source or "missing",
+        "total_margin_balance": total_margin,
         "margin_type": margin_type if margin_type in ("isolated", "cross") else "isolated",
         "leverage": leverage
     }

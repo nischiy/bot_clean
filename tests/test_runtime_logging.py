@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import logging
+from io import StringIO
 from pathlib import Path
 
 
@@ -49,3 +51,30 @@ def test_runtime_logs_not_created_on_import(monkeypatch, tmp_path: Path) -> None
 
     assert not (tmp_path / "runtime.log").exists()
     assert not (tmp_path / "sessions").exists()
+
+
+def test_decision_clean_prioritizes_funds_blockers() -> None:
+    from app import run
+
+    logger = logging.getLogger("decision_clean_test")
+    logger.setLevel(logging.INFO)
+    stream = StringIO()
+    handler = logging.StreamHandler(stream)
+    logger.handlers = [handler]
+    logger.propagate = False
+
+    decision_log = {
+        "reject_reasons": [
+            "insufficient_margin",
+            "min_qty_not_met_after_rounding: qty=0.0 min_qty=0.001",
+            "funds_source_missing",
+            "funds_nonpositive",
+            "M:regime",
+        ]
+    }
+
+    run._log_decision_clean(logger, decision_log)
+    handler.flush()
+    payload = json.loads(stream.getvalue().strip().splitlines()[-1])
+
+    assert payload["blockers"] == ["funds_source_missing", "funds_nonpositive"]

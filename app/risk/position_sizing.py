@@ -9,18 +9,19 @@ from typing import Dict, Any, Tuple, Optional, List
 
 def calculate_position_size(
     equity: float,
+    available: float,
     entry: float,
     sl: float,
     risk_per_trade: float,
     step_size: float,
     min_qty: float,
-    max_leverage: int = 5
+    leverage: int
 ) -> Tuple[Optional[float], Optional[int], List[str]]:
     """
     Calculate position size based on risk.
     
     Formula:
-        risk_usd = equity * risk_per_trade
+        risk_usd = funds_base * risk_per_trade
         qty = risk_usd / abs(entry - sl)
         qty must respect step_size and min_qty
         leverage ≤ max_leverage, isolated margin
@@ -30,8 +31,13 @@ def calculate_position_size(
     """
     errors = []
     
-    if equity <= 0:
-        errors.append("invalid_equity")
+    if equity is None or equity <= 0:
+        errors.append("missing_or_invalid_equity")
+    if available is None:
+        errors.append("funds_source_missing")
+    elif available <= 0:
+        errors.append("funds_nonpositive")
+    if errors:
         return None, None, errors
     
     if entry <= 0:
@@ -50,8 +56,9 @@ def calculate_position_size(
         errors.append("invalid_min_qty")
         return None, None, errors
     
-    # Calculate risk USD
-    risk_usd = equity * risk_per_trade
+    # Canonical funds base = available balance/margin
+    funds_base = float(available)
+    risk_usd = funds_base * risk_per_trade
     
     # Calculate distance to SL
     sl_distance = abs(entry - sl)
@@ -67,29 +74,22 @@ def calculate_position_size(
     
     # Ensure minimum quantity
     if qty < min_qty:
-        errors.append(f"qty_below_min: {qty} < {min_qty}")
+        errors.append(
+            f"min_qty_not_met_after_rounding: qty={qty} min_qty={min_qty} step={step_size} risk_usd={risk_usd}"
+        )
         return None, None, errors
     
     # Calculate notional
     notional = qty * entry
     
-    # Calculate leverage (isolated margin)
-    # margin = notional / leverage
-    # We want margin <= equity * risk_per_trade (but we already used that for qty)
-    # Actually, for isolated margin, we need to ensure margin is available
-    # Let's use a conservative approach: leverage = min(5, ceil(notional / (equity * 0.2)))
-    margin_required = notional / max_leverage
-    if margin_required > equity * 0.2:  # Use max 20% of equity as margin
-        # Adjust leverage to fit
-        leverage = math.ceil(notional / (equity * 0.2))
-        leverage = min(leverage, max_leverage)
-    else:
-        leverage = max_leverage
-    
-    # Final check: ensure we have enough margin
-    margin_needed = notional / leverage
-    if margin_needed > equity:
-        errors.append(f"insufficient_margin: {margin_needed} > {equity}")
+    if leverage is None or leverage <= 0:
+        errors.append("invalid_leverage")
+        return None, None, errors
+
+    # Final check: ensure we have enough available margin
+    margin_needed = notional / float(leverage)
+    if margin_needed > funds_base:
+        errors.append(f"insufficient_margin: {margin_needed} > {funds_base}")
         return None, None, errors
     
     return qty, leverage, []

@@ -22,7 +22,7 @@
 - Market identity: exchange, symbol, timeframe, timestamp_closed
 - Price snapshot: last, bid, ask, mark
 - Fees: maker, taker
-- Account state: equity, available, margin_type, leverage
+- Account state: equity, available, funds_base, funds_source, margin_type, leverage
 - Position state: side, qty, entry, unrealized_pnl, liq_price
 - LTF features: close, close_prev, ema50, ema120, atr14, rsi14, rsi14_prev, volume_ratio
 - HTF context: ema200, close, trend (up|down|range), timeframe
@@ -48,11 +48,11 @@
   - PULLBACK: trend in {up, down} and dist50 > 1.0
   - RANGE: otherwise
 
-**Strategy Priority & Routing (deterministic, non-overlapping):**
+**Strategy Routing (deterministic, non-overlapping):**
 - **Time-exit precedence:** if `time_exit_signal=True`, emit `intent=CLOSE` and skip all entry logic.
-- **Priority order:** BREAKOUT_EXPANSION → PULLBACK_REENTRY → CONTINUATION → RANGE_MEANREV → HOLD.
+- **Routing:** `regime_used_for_routing` maps to a single strategy (BREAKOUT_EXPANSION, CONTINUATION, PULLBACK_REENTRY, RANGE_MEANREV).
 - **Compression:** COMPRESSION always blocks entries → HOLD.
-- **Regime is diagnostic only:** regime labels remain single-valued, but strategy selection follows the explicit priority order above.
+ - **Override (verification):** `ROUTING_REGIME_OVERRIDE` can force routing only in non-production/test/offline/replay modes.
 
 **HTF Trend Stability Gate (1h):**
 - Uses **closed HTF candles only**.
@@ -123,8 +123,10 @@
 
 **Position Sizing:**
 - Module: `app.risk.position_sizing.calculate_position_size()`
-- Formula: `risk_usd = equity * risk_per_trade`, `qty = risk_usd / abs(entry - sl)`
-- Respects step_size, min_qty, leverage ≤ 5x
+- Formula: `risk_usd = funds_base * risk_per_trade`, `qty = risk_usd / abs(entry - sl)`
+- Respects step_size, min_qty, and re-checks margin after rounding
+- Margin check: `required_margin = (qty * entry) / leverage`
+- Equity is mandatory at payload stage; missing/invalid equity fails closed before sizing
 
 **Cooldown:** Trade plan blocked if any trade_plan was created within the last 15 minutes.
 

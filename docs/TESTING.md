@@ -3,7 +3,7 @@
 ## Run tests
 
 ```
-pytest
+py -m pytest
 ```
 
 ## What is mocked and why

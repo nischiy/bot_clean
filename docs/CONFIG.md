@@ -42,6 +42,7 @@ pip install -r requirements.txt
 - `INTERVAL` (str, default: `5m`) — decision timeframe (LTF).
 - `HTF_INTERVAL` (str, default: `1h`) — higher timeframe context (HTF).
 - `QUOTE_ASSET` (str, default: `USDT`)
+- `ROUTING_REGIME_OVERRIDE` (str, default: empty) — force routing regime for verification in non-production/test/offline/replay only (`BREAKOUT_EXPANSION|TREND_CONTINUATION|PULLBACK|RANGE|COMPRESSION`)
 
 ## Exchange endpoints and modules
 
@@ -51,6 +52,8 @@ pip install -r requirements.txt
 - `BASE_URL_MAINNET` (str, default: `https://fapi.binance.com`)
 - `BASE_URL_TESTNET` (str, default: `https://testnet.binancefuture.com`)
 - `MARKET_DATA_MODULE` (str, default: `app.services.market_data`)
+- `BINANCE_RECV_WINDOW` (int, default: `5000`)
+- `BINANCE_TIME_OFFSET_TTL_SEC` (int, default: `60`) — TimeSync refresh TTL
 
 ## API keys and aliases
 
@@ -70,6 +73,8 @@ All are normalized into canonical keys. In production live trading, at least one
 - `MAX_LEVERAGE` (int, default: `5`)
 - `MAX_MARGIN_UTIL_PCT` (float, default: `30`)
 - `MIN_SL_TICKS` (int, default: `10`)
+  - Sizing uses `funds_base = min(availableBalance, totalMarginBalance)` when both exist
+  - `equity_usd` is required for payload validity; missing/invalid equity fails closed
 
 ## Risk guard
 
@@ -132,6 +137,7 @@ Single-line structured events (JSON):
 - `startup_banner`: ENV, runtime flags, symbol/interval, mutation status
 - `tick_summary`: now, interval, latest_closed_ts, last_processed_ts, will_process, skip_reason
 - `decision_candle`: price/bid/ask/spread, HTF trend, EMA50/ATR/RSI, pullback/reclaim, decision + reject_reasons
+- `decision_clean`: regime routing + blockers + funds/sizing evidence
 
 `decision_candle` fields:
 
@@ -141,6 +147,14 @@ Single-line structured events (JSON):
 - `pullback_atr`, `reclaim`: pullback metrics
 - `decision`, `reject_reasons`, `cooldown_active`
 - `time_exit_signal`: log-only time exit condition
+
+`decision_clean` fields:
+
+- `equity`, `funds_base`, `funds_source`, `risk_usd`, `qty_before_rounding`, `qty_after_rounding`
+- `required_margin`, `leverage_used`
+- `regime_detected`, `regime_used_for_routing`
+- `eligible_strategies`, `selected_strategy`
+- `blockers`, `blocker_categories`
 
 Runtime log file:
 

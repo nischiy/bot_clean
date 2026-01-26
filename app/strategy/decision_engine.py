@@ -9,6 +9,7 @@ from typing import Dict, Any, List, Tuple, Optional
 
 from app.core.validation import validate_decision
 from core.config import settings
+from core.runtime_mode import get_runtime_settings
 
 
 def _to_float(value: Any, default: Optional[float] = None) -> Optional[float]:
@@ -636,6 +637,8 @@ def make_decision(payload: Dict[str, Any], daily_state: Optional[Dict[str, Any]]
         cont_long_ok = len(cont_long_rejects) == 0
 
     cont_rejects = cont_short_rejects if direction == "DOWN" else cont_long_rejects
+    if not cont_long_ok and not cont_short_ok:
+        cont_rejects.append("C:strategy_ineligible")
 
     regime_detected = compute_regime_5m({
         "close_ltf": close_ltf,
@@ -789,9 +792,9 @@ def make_decision(payload: Dict[str, Any], daily_state: Optional[Dict[str, Any]]
 
     meanrev_long_ok = range_meanrev_long_ok
     meanrev_short_ok = range_meanrev_short_ok
+    meanrev_ok = meanrev_long_ok or meanrev_short_ok
     if regime_detected != "RANGE":
         meanrev_rejects.append("M:regime")
-        meanrev_rejects.append("M:strategy_ineligible")
     if breakout_long or breakout_short:
         meanrev_rejects.append("M:breakout")
     if htf_trend != "range" and trend_strength >= trend_strength_min:
@@ -807,10 +810,11 @@ def make_decision(payload: Dict[str, Any], daily_state: Optional[Dict[str, Any]]
             meanrev_rejects.append("M:range_short")
     if spread_pct is not None and spread_pct > spread_max_pct:
         meanrev_rejects.append("M:spread")
+    if not meanrev_ok:
+        meanrev_rejects.append("M:strategy_ineligible")
 
     if regime_detected != "PULLBACK":
         pullback_rejects.append("P:regime")
-        pullback_rejects.append("P:strategy_ineligible")
     if htf_trend not in ("up", "down"):
         pullback_rejects.append("P:trend")
     if dist50 is None or dist50 > pullback_reentry_dist50_max:
@@ -911,35 +915,50 @@ def make_decision(payload: Dict[str, Any], daily_state: Optional[Dict[str, Any]]
             tp = None
             rr = None
 
+    routing_regime = regime_detected
+    runtime = get_runtime_settings()
+    allow_override = runtime.is_test or runtime.is_replay or runtime.is_offline or runtime.env != "production"
+    override_regime = str(settings.get_str("ROUTING_REGIME_OVERRIDE", "") or "").strip().upper()
+    if override_regime and allow_override:
+        override_map = {
+            "BREAKOUT_EXPANSION": "BREAKOUT_EXPANSION",
+            "TREND_CONTINUATION": "TREND_CONTINUATION",
+            "PULLBACK": "PULLBACK",
+            "RANGE": "RANGE",
+            "COMPRESSION": "COMPRESSION",
+        }
+        if override_regime in override_map:
+            routing_regime = override_map[override_regime]
+
     if time_exit_signal:
         eligible_strategies = ["TIME_EXIT"]
         selected_strategy = "TIME_EXIT"
         intent = "CLOSE"
         rule = selected_strategy
     else:
-        strategy_priority = [
-            "BREAKOUT_EXPANSION",
-            "PULLBACK_REENTRY",
-            "CONTINUATION",
-            "RANGE_MEANREV",
-        ]
-        if regime_detected == "COMPRESSION":
+        strategy_by_regime = {
+            "BREAKOUT_EXPANSION": "BREAKOUT_EXPANSION",
+            "TREND_CONTINUATION": "CONTINUATION",
+            "PULLBACK": "PULLBACK_REENTRY",
+            "RANGE": "RANGE_MEANREV",
+            "COMPRESSION": None,
+        }
+        strategy_ok = {
+            "BREAKOUT_EXPANSION": breakout_expansion_long_ok or breakout_expansion_short_ok,
+            "CONTINUATION": cont_long_ok or cont_short_ok,
+            "PULLBACK_REENTRY": pullback_reentry_long_ok or pullback_reentry_short_ok,
+            "RANGE_MEANREV": range_meanrev_long_ok or range_meanrev_short_ok,
+        }
+        routed_strategy = strategy_by_regime.get(routing_regime)
+        if routing_regime == "COMPRESSION":
             strategy_block_reason = "regime:COMPRESSION"
+        elif routed_strategy is None:
+            strategy_block_reason = f"regime:{routing_regime or 'UNKNOWN'}"
+        elif strategy_ok.get(routed_strategy):
+            eligible_strategies = [routed_strategy]
+            selected_strategy = routed_strategy
         else:
-            candidates: List[str] = []
-            if breakout_expansion_long_ok or breakout_expansion_short_ok:
-                candidates.append("BREAKOUT_EXPANSION")
-            if pullback_reentry_long_ok or pullback_reentry_short_ok:
-                candidates.append("PULLBACK_REENTRY")
-            if cont_long_ok or cont_short_ok:
-                candidates.append("CONTINUATION")
-            if range_meanrev_long_ok or range_meanrev_short_ok:
-                candidates.append("RANGE_MEANREV")
-            eligible_strategies = [name for name in strategy_priority if name in candidates]
-            selected_strategy = eligible_strategies[0] if eligible_strategies else "NONE"
-            eligible_strategies = [selected_strategy] if selected_strategy != "NONE" else []
-            if selected_strategy == "NONE":
-                strategy_block_reason = "strategy_ineligible"
+            strategy_block_reason = "strategy_ineligible"
 
         if selected_strategy == "BREAKOUT_EXPANSION":
             intent = "LONG" if breakout_expansion_long_ok else "SHORT"
@@ -967,19 +986,18 @@ def make_decision(payload: Dict[str, Any], daily_state: Optional[Dict[str, Any]]
 
     if intent == "HOLD":
         active_rejects: List[str] = []
-        if regime_detected == "BREAKOUT_EXPANSION":
+        if routing_regime == "BREAKOUT_EXPANSION":
             active_rejects.extend(breakout_rejects)
-        elif regime_detected == "TREND_CONTINUATION":
+        elif routing_regime == "TREND_CONTINUATION":
             active_rejects.extend(cont_rejects)
-        elif regime_detected == "PULLBACK":
+        elif routing_regime == "PULLBACK":
             active_rejects.extend(pullback_rejects)
-        elif regime_detected == "RANGE":
+        elif routing_regime == "RANGE":
             active_rejects.extend(meanrev_rejects)
-        elif regime_detected == "COMPRESSION":
-            active_rejects.extend(["M:regime", "M:strategy_ineligible"])
-
-        if regime_detected != "RANGE":
-            active_rejects.extend(["M:regime", "M:strategy_ineligible"])
+        elif routing_regime == "COMPRESSION":
+            active_rejects.append("R:compression")
+        if routing_regime != regime_detected:
+            active_rejects.append("M:regime")
 
         for code in active_rejects:
             if code not in reject_reasons:
@@ -994,6 +1012,7 @@ def make_decision(payload: Dict[str, Any], daily_state: Optional[Dict[str, Any]]
             "direction": direction,
             "regime": regime,
             "regime_detected": regime_detected,
+            "regime_used_for_routing": routing_regime,
             "trend_strength": trend_strength,
             "trend_stable_long": trend_stable_long,
             "trend_stable_short": trend_stable_short,

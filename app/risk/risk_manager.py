@@ -165,20 +165,32 @@ def create_trade_plan(
             return None, rejections
     
     if intent in ("LONG", "SHORT"):
-        equity = account_state.get("equity", 0.0)
+        equity = account_state.get("equity", None)
+        funds_base = account_state.get("funds_base", None)
         risk_per_trade = risk_policy.get("risk_per_trade", 0.05)
         step_size = exchange_limits.get("step_size", 0.0)
         min_qty = exchange_limits.get("min_qty", 0.0)
-        max_leverage = min(account_state.get("leverage", 5), 5)  # Cap at 5x
+        leverage = account_state.get("leverage", None)
+
+        if funds_base is None:
+            rejections.append("funds_source_missing")
+            return None, rejections
+        if float(funds_base or 0.0) <= 0.0:
+            rejections.append("funds_nonpositive")
+            return None, rejections
+        if leverage is None or int(leverage) <= 0:
+            rejections.append("invalid_leverage")
+            return None, rejections
 
         qty, leverage, sizing_errors = calculate_position_size(
-            equity=equity,
+            equity=float(equity) if equity is not None else 0.0,
+            available=float(funds_base),
             entry=entry,
             sl=sl,
             risk_per_trade=risk_per_trade,
             step_size=step_size,
             min_qty=min_qty,
-            max_leverage=max_leverage
+            leverage=int(leverage)
         )
 
         if qty is None:

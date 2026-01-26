@@ -58,8 +58,8 @@
 - Impact if violated: inconsistent decisions under identical data, breaking reproducibility.
 
 12) Explainable logs are single-line and stable.
-- Enforced in: `app.run._log_structured()` with `tick_summary` and `decision_candle`.
-- Required fields: now, interval, latest_closed_ts, last_processed_ts, skip_reason; decision metrics and reject reasons.
+- Enforced in: `app.run._log_structured()` with `tick_summary`, `decision_candle`, and `decision_clean`.
+- Required fields: routing regime, blockers, equity, and funds/sizing evidence in `decision_clean`.
 - Impact if violated: trading decisions become non-auditable in real time.
 
 13) Time-exit intent uses only closed candles.
@@ -73,4 +73,8 @@
 15) Strategy priority order and time-exit precedence.
 - Enforced in: `app.strategy.decision_engine.make_decision()` (TIME_EXIT first, then BREAKOUT → PULLBACK → CONTINUATION → RANGE → HOLD).
 - Impact if violated: multiple strategies could trigger in the same candle or entries could bypass exit intents.
+
+16) Equity is required for payload validity.
+- Enforced in: `app.data.payload_builder.build_payload()` (missing/invalid equity adds `missing_or_invalid_equity` and fails closed).
+- Impact if violated: trades could proceed without an account equity baseline.
 

@@ -60,7 +60,8 @@ def test_build_payload_valid(sample_df_ltf, sample_df_htf):
     """Test building valid payload."""
     account_snapshot = {
         "equity_usd": 10000.0,
-        "available": 9500.0,
+        "available_usd": 9500.0,
+        "total_margin_usd": 9800.0,
         "margin_type": "isolated"
     }
     position_snapshot = {
@@ -109,6 +110,7 @@ def test_build_payload_valid(sample_df_ltf, sample_df_htf):
     assert len(errors) == 0
     assert payload["market_identity"]["symbol"] == "BTCUSDT"
     assert payload["account_state"]["equity"] == 10000.0
+    assert payload["account_state"]["funds_base"] == 9500.0
 
 
 def test_build_payload_missing_data(sample_df_ltf):
@@ -137,4 +139,41 @@ def test_build_payload_missing_data(sample_df_ltf):
     
     assert payload is None
     assert len(errors) > 0
-    assert any("missing" in err.lower() or "invalid" in err.lower() for err in errors)
+    assert any("funds_source_missing" in err or "missing" in err.lower() or "invalid" in err.lower() for err in errors)
+
+
+def test_build_payload_requires_equity(sample_df_ltf, sample_df_htf):
+    account_snapshot = {
+        "equity_usd": None,
+        "available_usd": 100.0,
+        "total_margin_usd": 100.0,
+        "margin_type": "isolated",
+    }
+    position_snapshot = {"side": None, "qty": 0.0, "entry": 0.0, "unrealized_pnl": 0.0, "liq_price": None}
+    price_snapshot = {"value": 50000.0, "bid": 49999.0, "ask": 50001.0, "mark": 50000.0}
+    filters_snapshot = {
+        "step_size": 0.001,
+        "min_qty": 0.001,
+        "tick_size": 0.1,
+        "value": {
+            "LOT_SIZE": {"stepSize": "0.001", "minQty": "0.001"},
+            "PRICE_FILTER": {"tickSize": "0.1"},
+        },
+    }
+    timestamp_closed = int(datetime.now(timezone.utc).timestamp())
+
+    payload, errors = build_payload(
+        symbol="BTCUSDT",
+        df_ltf=sample_df_ltf,
+        df_htf=sample_df_htf,
+        account_snapshot=account_snapshot,
+        position_snapshot=position_snapshot,
+        price_snapshot=price_snapshot,
+        filters_snapshot=filters_snapshot,
+        timestamp_closed=timestamp_closed,
+        timeframe="5m",
+        htf_timeframe="1h",
+    )
+
+    assert payload is None
+    assert any("missing_or_invalid_equity" in err for err in errors)

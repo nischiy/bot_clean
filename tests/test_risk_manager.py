@@ -2,6 +2,7 @@
 Tests for risk manager.
 """
 import pytest
+from app.risk.position_sizing import calculate_position_size
 from app.risk.risk_manager import check_kill_switches, create_trade_plan
 from core.risk_guard import clear_kill
 from app.state import state_manager
@@ -32,6 +33,9 @@ def valid_payload():
         },
         "account_state": {
             "equity": 10000.0,
+            "available": 9500.0,
+            "funds_base": 9500.0,
+            "funds_source": "available_balance",
             "margin_type": "isolated",
             "leverage": 5
         },
@@ -112,6 +116,90 @@ def test_create_trade_plan_valid(valid_payload, valid_decision, daily_state):
     assert "client_order_id" in trade_plan
     assert "stop_loss" in trade_plan
     assert "take_profit" in trade_plan
+
+
+def test_risk_uses_available_funds(valid_payload, valid_decision, daily_state):
+    payload = dict(valid_payload)
+    payload["account_state"] = {
+        "equity": 1000.0,
+        "available": 100.0,
+        "funds_base": 100.0,
+        "funds_source": "available_balance",
+        "margin_type": "isolated",
+        "leverage": 5,
+    }
+    decision = dict(valid_decision)
+    decision["entry"] = 100.0
+    decision["sl"] = 90.0
+    trade_plan, rejections = create_trade_plan(payload, decision, daily_state, [])
+    if not _JSONSCHEMA_AVAILABLE:
+        assert trade_plan is None
+        return
+    assert trade_plan is not None, f"Rejections: {rejections}"
+    assert trade_plan["quantity"] == pytest.approx(0.5)
+    risk_usd = 100.0 * payload["risk_policy"]["risk_per_trade"]
+    expected_qty = risk_usd / abs(decision["entry"] - decision["sl"])
+    assert expected_qty == pytest.approx(0.5)
+    required_margin = (trade_plan["quantity"] * decision["entry"]) / payload["account_state"]["leverage"]
+    assert required_margin == pytest.approx(10.0)
+
+
+def test_position_sizing_equity_missing_classified():
+    qty, leverage, errors = calculate_position_size(
+        equity=None,
+        available=100.0,
+        entry=100.0,
+        sl=90.0,
+        risk_per_trade=0.05,
+        step_size=0.001,
+        min_qty=0.001,
+        leverage=5,
+    )
+    assert qty is None
+    assert leverage is None
+    assert "missing_or_invalid_equity" in errors
+    assert all("funds_source_missing" not in e for e in errors)
+
+
+def test_insufficient_margin_rejects(valid_payload, valid_decision, daily_state):
+    payload = dict(valid_payload)
+    payload["account_state"] = {
+        "equity": 100.0,
+        "available": 1.0,
+        "funds_base": 1.0,
+        "funds_source": "available_balance",
+        "margin_type": "isolated",
+        "leverage": 1,
+    }
+    decision = dict(valid_decision)
+    decision["entry"] = 100.0
+    decision["sl"] = 99.0
+    trade_plan, rejections = create_trade_plan(payload, decision, daily_state, [])
+    assert trade_plan is None
+    assert any("insufficient_margin" in r for r in rejections)
+
+
+def test_min_qty_rejects_when_funds_too_low(valid_payload, valid_decision, daily_state):
+    payload = dict(valid_payload)
+    payload["account_state"] = {
+        "equity": 50.0,
+        "available": 10.0,
+        "funds_base": 10.0,
+        "funds_source": "available_balance",
+        "margin_type": "isolated",
+        "leverage": 5,
+    }
+    payload["exchange_limits"] = {
+        "step_size": 0.001,
+        "min_qty": 0.001,
+        "tick_size": 0.1,
+    }
+    decision = dict(valid_decision)
+    decision["entry"] = 10000.0
+    decision["sl"] = 9000.0
+    trade_plan, rejections = create_trade_plan(payload, decision, daily_state, [])
+    assert trade_plan is None
+    assert any("min_qty_not_met_after_rounding" in r for r in rejections)
 
 
 def test_create_trade_plan_hold_intent(valid_payload, daily_state):

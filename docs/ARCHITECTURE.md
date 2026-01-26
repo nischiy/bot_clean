@@ -44,6 +44,7 @@ Runtime ordering per tick (strict):
 - LTF features (EMA50/EMA120, ATR, RSI14, close_prev, volume ratio)
   - HTF context (EMA200, trend)
   - Risk policy, market meta, exchange limits
+  - **Funds base:** `funds_base = min(availableBalance, totalMarginBalance)` when both present
 
 ### Stage 2: Decision Engine
 - **Module:** `app.strategy.decision_engine`
@@ -71,8 +72,9 @@ Runtime ordering per tick (strict):
   - Stale data
 - Exit enforcement handled before risk evaluation (missing SL/TP → kill-switch)
 - **Position Sizing:** `app.risk.position_sizing`
-  - Formula: `risk_usd = equity * risk_per_trade`, `qty = risk_usd / abs(entry - sl)`
-  - Respects step_size, min_qty, leverage ≤ 5x
+  - Formula: `risk_usd = funds_base * risk_per_trade`, `qty = risk_usd / abs(entry - sl)`
+  - Rounds to step_size, enforces min_qty, and re-checks margin after rounding
+  - Margin check: `required_margin = (qty * entry) / leverage`
 - **Fail-closed:** Any check fails → HOLD with rejections
 
 ### Stage 4: Execution Service
@@ -107,8 +109,8 @@ Runtime ordering per tick (strict):
 
 - `core.config.*`: configuration parsing, environment normalization, and defaults.
 - `core.env_loader`: `.env` discovery and parsing.
-- `core.exchange_private`: private account snapshot via REST helpers in `core.execution.binance_futures`.
-- `core.execution.binance_futures`: REST helpers for public/private Binance Futures calls.
+- `core.exchange_private`: account snapshot (prefers `/fapi/v3/account`, fallback `/fapi/v2/account`) + balances.
+- `core.execution.binance_futures`: REST helpers with TimeSync for all signed endpoints.
 - `core.risk_guard`: risk guard and kill switch, plus health logging.
 - `core.telemetry.health`: JSONL health logging.
 

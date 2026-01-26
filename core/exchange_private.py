@@ -115,7 +115,7 @@ def fetch_futures_private() -> Dict[str, Any]:
             "error": "account_snapshot_failed: missing_api_keys",
             "error_category": "CONFIG_ERROR",
             "error_reason": "missing_api_keys",
-            "endpoint": "/fapi/v2/balance",
+            "endpoint": "/fapi/v2/account",
             "http_status": None,
             "binance_error_code": None,
             "binance_error_msg": None,
@@ -123,7 +123,36 @@ def fetch_futures_private() -> Dict[str, Any]:
     request_ts = _request_timestamp_ms()
     try:
         from core.execution import binance_futures
+
+        def _flt(val: Any) -> Optional[float]:
+            try:
+                return float(val)
+            except Exception:
+                return None
+
+        def _fetch_account_info() -> Dict[str, Any]:
+            endpoints = ("/fapi/v3/account", "/fapi/v2/account")
+            last_error: Optional[Exception] = None
+            for endpoint in endpoints:
+                try:
+                    payload = binance_futures._get(endpoint, {}, private=True)
+                    if isinstance(payload, dict):
+                        return {
+                            "available_balance": _flt(payload.get("availableBalance")),
+                            "total_wallet_balance": _flt(payload.get("totalWalletBalance")),
+                            "total_margin_balance": _flt(payload.get("totalMarginBalance")),
+                            "update_time": payload.get("updateTime"),
+                            "endpoint": endpoint,
+                        }
+                except Exception as exc:
+                    last_error = exc
+                    continue
+            if last_error:
+                raise last_error
+            return {}
+
         bals: Dict[str, float] = {}
+        account_payload = _fetch_account_info()
         balances = binance_futures._get("/fapi/v2/balance", {}, private=True)
         if isinstance(balances, list):
             for b in balances:
@@ -138,11 +167,12 @@ def fetch_futures_private() -> Dict[str, Any]:
         return {
             "mode": "PRIVATE_OK",
             "balances": bals,
+            "account": account_payload,
             "positions": pos,
             "error": None,
             "error_category": None,
             "error_reason": None,
-            "endpoint": "/fapi/v2/balance",
+            "endpoint": account_payload.get("endpoint") if isinstance(account_payload, dict) else "/fapi/v2/account",
             "http_status": None,
             "binance_error_code": None,
             "binance_error_msg": None,
@@ -171,7 +201,7 @@ def fetch_futures_private() -> Dict[str, Any]:
             request_endpoint = None
             signed_params_snapshot = None
         payload = {
-            "endpoint": "/fapi/v2/balance",
+            "endpoint": request_endpoint or "/fapi/v2/account",
             "http_status": http_status,
             "binance_error_code": code,
             "binance_error_msg": msg or str(e),
@@ -207,7 +237,7 @@ def fetch_futures_private() -> Dict[str, Any]:
             "error": f"account_snapshot_failed: {e}",
             "error_category": category,
             "error_reason": reason,
-            "endpoint": "/fapi/v2/balance",
+            "endpoint": request_endpoint or "/fapi/v2/account",
             "http_status": http_status,
             "binance_error_code": code,
             "binance_error_msg": msg,

@@ -12,6 +12,7 @@
   - `LOG_DIR/sessions/{YYYYMMDD_HHMMSS}_{pid}.log` (per-run session log).
   - `LOG_DIR/bootstrap.log` (bootstrap log in `app.bootstrap._ensure_logging()`).
   - `LOG_DIR/health/<date>/health.jsonl` (health logs in `core.telemetry.health.log_health()` and `core.risk_guard.log_event()`).
+  - `decision_clean` includes routing + funds/sizing evidence for auditability.
 
 ### State Persistence (New)
 - `run/state/`: created by `app.state.state_manager` for restart safety.

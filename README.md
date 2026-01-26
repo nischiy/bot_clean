@@ -21,7 +21,8 @@ The system enforces **three JSON contracts** between modules:
 - ✅ **UTC daily reset**: Daily state resets at UTC midnight
 - ✅ **Hard SL/TP enforcement**: Missing protective orders triggers kill-switch
 - ✅ **LIVE_READONLY paper mirror**: Real market + account/position snapshots with zero mutations
-- ✅ **Explainable logs**: Single-line `tick_summary` + `decision_candle` with reasons
+- ✅ **Explainable logs**: `decision_clean` includes funds + sizing + routing evidence
+- ✅ **TimeSync recovery**: Automatic server-time sync with retry-on-`-1021`
 
 ## Quick Start
 
@@ -58,14 +59,19 @@ MIN_RR=1.8
 LEVERAGE=5
 ```
 
+Key safety defaults:
+- **Funds base:** sizing uses `funds_base = min(availableBalance, totalMarginBalance)` when both exist
+- **Fail-closed:** missing/nonpositive funds → HOLD with explicit reject reason
+- **Time sync:** signed endpoints use server time offset with retry-on-`-1021`
+
 ### Running
 
 ```bash
 # Run in paper trading mode
 python main.py
 
-# Run tests
-pytest tests/ -v
+# Run tests (Windows)
+py -m pytest tests/ -v
 ```
 
 ## Architecture Flow
@@ -79,6 +85,7 @@ Market Data → Payload Builder → Decision Engine → Risk Manager → Executi
 - **Module:** `app.data.payload_builder`
 - Builds validated `payload.json` from market data, account state, and features
 - Fail-closed: Missing/NaN/stale data → HOLD
+- Canonical funds base derived from account snapshot (available + margin)
 
 ### 2. Decision Engine
 - **Module:** `app.strategy.decision_engine`
@@ -91,6 +98,8 @@ Market Data → Payload Builder → Decision Engine → Risk Manager → Executi
 - Produces validated `trade_plan.json` from decision
 - **Authority:** FINAL AUTHORITY - only if ALL kill-switch checks pass
 - Kill-switch checks: drawdown, consecutive losses, spread, ATR, stale data, etc.
+- Position sizing: `risk_usd = funds_base * risk_per_trade`, `qty = risk_usd / |entry - sl|`
+- Margin check: `required_margin = (qty * entry) / leverage` after rounding to step size
 
 ### 4. Execution Service
 - **Module:** `app.services.execution_service`
@@ -110,7 +119,7 @@ State is persisted for restart safety:
 
 ```bash
 # Run all tests
-pytest tests/ -v
+py -m pytest tests/ -v
 
 # Run specific test suite
 pytest tests/test_schema_validation.py -v
