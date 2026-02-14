@@ -1,0 +1,1752 @@
+[
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "LONG",
+    "selected_strategy": "PULLBACK_REENTRY",
+    "main_blocker": null,
+    "strategy_block_reason": null,
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "LONG",
+    "selected_strategy": "PULLBACK_REENTRY",
+    "main_blocker": null,
+    "strategy_block_reason": null,
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "LONG",
+    "selected_strategy": "PULLBACK_REENTRY",
+    "main_blocker": null,
+    "strategy_block_reason": null,
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "LONG",
+    "selected_strategy": "PULLBACK_REENTRY",
+    "main_blocker": null,
+    "strategy_block_reason": null,
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "LONG",
+    "selected_strategy": "PULLBACK_REENTRY",
+    "main_blocker": null,
+    "strategy_block_reason": null,
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "LONG",
+    "selected_strategy": "PULLBACK_REENTRY",
+    "main_blocker": null,
+    "strategy_block_reason": null,
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "LONG",
+    "selected_strategy": "PULLBACK_REENTRY",
+    "main_blocker": null,
+    "strategy_block_reason": null,
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "LONG",
+    "selected_strategy": "PULLBACK_REENTRY",
+    "main_blocker": null,
+    "strategy_block_reason": null,
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "LONG",
+    "selected_strategy": "PULLBACK_REENTRY",
+    "main_blocker": null,
+    "strategy_block_reason": null,
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "LONG",
+    "selected_strategy": "PULLBACK_REENTRY",
+    "main_blocker": null,
+    "strategy_block_reason": null,
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "LONG",
+    "selected_strategy": "PULLBACK_REENTRY",
+    "main_blocker": null,
+    "strategy_block_reason": null,
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "LONG",
+    "selected_strategy": "PULLBACK_REENTRY",
+    "main_blocker": null,
+    "strategy_block_reason": null,
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "LONG",
+    "selected_strategy": "PULLBACK_REENTRY",
+    "main_blocker": null,
+    "strategy_block_reason": null,
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "LONG",
+    "selected_strategy": "PULLBACK_REENTRY",
+    "main_blocker": null,
+    "strategy_block_reason": null,
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "LONG",
+    "selected_strategy": "PULLBACK_REENTRY",
+    "main_blocker": null,
+    "strategy_block_reason": null,
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "LONG",
+    "selected_strategy": "PULLBACK_REENTRY",
+    "main_blocker": null,
+    "strategy_block_reason": null,
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "LONG",
+    "selected_strategy": "PULLBACK_REENTRY",
+    "main_blocker": null,
+    "strategy_block_reason": null,
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "LONG",
+    "selected_strategy": "PULLBACK_REENTRY",
+    "main_blocker": null,
+    "strategy_block_reason": null,
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "LONG",
+    "selected_strategy": "PULLBACK_REENTRY",
+    "main_blocker": null,
+    "strategy_block_reason": null,
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "LONG",
+    "selected_strategy": "PULLBACK_REENTRY",
+    "main_blocker": null,
+    "strategy_block_reason": null,
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "LONG",
+    "selected_strategy": "PULLBACK_REENTRY",
+    "main_blocker": null,
+    "strategy_block_reason": null,
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "LONG",
+    "selected_strategy": "PULLBACK_REENTRY",
+    "main_blocker": null,
+    "strategy_block_reason": null,
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:trend",
+    "strategy_block_reason": "gated_by_trend",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "M:vol",
+    "strategy_block_reason": "gated_by_volume",
+    "regime_detected": "RANGE"
+  },
+  {
+    "decision": "LONG",
+    "selected_strategy": "PULLBACK_REENTRY",
+    "main_blocker": null,
+    "strategy_block_reason": null,
+    "regime_detected": "RANGE"
+  }
+]

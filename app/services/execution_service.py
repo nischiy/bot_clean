@@ -19,6 +19,14 @@ import core.exchange_private as exchange_private
 from app.services.exit_adapter import preview_exits
 from core.risk_guard import kill
 
+# Import cancel_order_via_rest
+try:
+    from app.services.notifications import cancel_order_via_rest
+except ImportError:
+    # Fallback if not available
+    def cancel_order_via_rest(*args, **kwargs):
+        raise NotImplementedError("cancel_order_via_rest not available")
+
 def _retry_call(fn, *, log: logging.Logger, label: str) -> Any:
     attempts = settings.get_int("EXECUTION_RETRY_ATTEMPTS")
     base_delay = settings.get_float("EXECUTION_RETRY_BASE_DELAY_SEC")
@@ -100,6 +108,11 @@ class ExecutionService:
         margin_type = trade_plan.get("margin_type", "isolated")
         stop_loss = trade_plan.get("stop_loss", {})
         take_profit = trade_plan.get("take_profit", {})
+        tp_orders = trade_plan.get("tp_orders", [])
+        
+        # Handle UPDATE_SLTP action
+        if action == "UPDATE_SLTP":
+            return self._execute_update_sltp(trade_plan, symbol=symbol, stop_loss=stop_loss)
         
         # 2. Check idempotency
         trade_hash = _trade_plan_hash(trade_plan)
@@ -207,36 +220,123 @@ class ExecutionService:
         
         # 7/8. Place SL/TP orders (reduceOnly + closePosition)
         sl_order = None
-        tp_order = None
+        tp_orders_result = []
         sl_price = stop_loss.get("price") if isinstance(stop_loss, dict) else None
-        tp_price = take_profit.get("price") if isinstance(take_profit, dict) else None
-        exit_plan = preview_exits(symbol, side, sl_price, tp_price)
-        for spec in exit_plan.get("orders", []):
+        
+        # Place SL order
+        if sl_price is not None:
+            exit_side = "SELL" if side == "BUY" else "BUY"
+            sl_spec = {
+                "symbol": symbol,
+                "side": exit_side,
+                "type": "STOP_MARKET",
+                "stopPrice": float(sl_price),
+                "closePosition": True,
+                "reduceOnly": True,
+                "newClientOrderId": stop_loss.get("client_order_id"),
+            }
             try:
-                _log_ledger("sltp_submitted", trade_plan, {"type": spec.get("type")})
+                _log_ledger("sltp_submitted", trade_plan, {"type": "STOP_MARKET"})
                 with net.execution_context():
-                    resp = _retry_call(
-                        lambda: net.place_order_via_rest(**spec),
+                    sl_order = _retry_call(
+                        lambda: net.place_order_via_rest(**sl_spec),
                         log=self.log,
-                        label=f"place_exit_order({symbol},{spec.get('type')}) failed",
+                        label=f"place_sl_order({symbol}) failed",
                     )
-                if spec.get("type") == "STOP_MARKET":
-                    sl_order = resp
-                elif spec.get("type") == "TAKE_PROFIT_MARKET":
-                    tp_order = resp
+                # Persist SL order ID for idempotency
+                if sl_order and isinstance(sl_order, dict):
+                    sl_client_id = stop_loss.get("client_order_id")
+                    if sl_client_id:
+                        save_trade_identifier(sl_client_id, _trade_plan_hash({"sl": sl_price, "client_order_id": sl_client_id}))
             except Exception as e:
-                errors.append(f"exit_order_failed: {e}")
-                self.log.error(f"Failed to place exit order: {e}")
+                errors.append(f"sl_order_failed: {e}")
+                self.log.error(f"Failed to place SL order: {e}")
+        
+        # Place TP orders (multiple if tp_orders array exists, otherwise single take_profit)
+        if tp_orders:
+            # Multiple TP orders from tp_orders array
+            exit_side = "SELL" if side == "BUY" else "BUY"
+            for tp_order_spec in tp_orders:
+                tp_client_id = tp_order_spec.get("client_order_id")
+                tp_price = tp_order_spec.get("take_price")
+                tp_qty = tp_order_spec.get("qty")
+                
+                if tp_client_id and has_trade_identifier(tp_client_id):
+                    self.log.warning(f"TP order already exists: {tp_client_id}")
+                    continue
+                
+                order_spec = {
+                    "symbol": symbol,
+                    "side": exit_side,
+                    "type": "TAKE_PROFIT_MARKET",
+                    "stopPrice": float(tp_price),
+                    "quantity": float(tp_qty),
+                    "reduceOnly": True,
+                    "newClientOrderId": tp_client_id,
+                }
+                try:
+                    _log_ledger("sltp_submitted", trade_plan, {"type": "TAKE_PROFIT_MARKET", "tp_index": len(tp_orders_result) + 1})
+                    with net.execution_context():
+                        resp = _retry_call(
+                            lambda: net.place_order_via_rest(**order_spec),
+                            log=self.log,
+                            label=f"place_tp_order({symbol},tp{len(tp_orders_result)+1}) failed",
+                        )
+                    tp_orders_result.append(resp)
+                    # Persist TP order ID for idempotency
+                    if resp and isinstance(resp, dict) and tp_client_id:
+                        save_trade_identifier(tp_client_id, _trade_plan_hash({"tp": tp_price, "qty": tp_qty, "client_order_id": tp_client_id}))
+                except Exception as e:
+                    errors.append(f"tp_order_failed: {e}")
+                    self.log.error(f"Failed to place TP order: {e}")
+        elif take_profit and isinstance(take_profit, dict):
+            # Single TP (backward compatible)
+            tp_price = take_profit.get("price")
+            tp_client_id = take_profit.get("client_order_id")
+            if tp_price is not None:
+                exit_plan = preview_exits(symbol, side, None, tp_price)
+                for spec in exit_plan.get("orders", []):
+                    if spec.get("type") == "TAKE_PROFIT_MARKET":
+                        if tp_client_id:
+                            spec["newClientOrderId"] = tp_client_id
+                        if tp_client_id and has_trade_identifier(tp_client_id):
+                            self.log.warning(f"TP order already exists: {tp_client_id}")
+                            continue
+                        try:
+                            _log_ledger("sltp_submitted", trade_plan, {"type": "TAKE_PROFIT_MARKET"})
+                            with net.execution_context():
+                                resp = _retry_call(
+                                    lambda: net.place_order_via_rest(**spec),
+                                    log=self.log,
+                                    label=f"place_tp_order({symbol}) failed",
+                                )
+                            tp_orders_result.append(resp)
+                            # Persist TP order ID for idempotency
+                            if resp and isinstance(resp, dict) and tp_client_id:
+                                save_trade_identifier(tp_client_id, _trade_plan_hash({"tp": tp_price, "client_order_id": tp_client_id}))
+                        except Exception as e:
+                            errors.append(f"tp_order_failed: {e}")
+                            self.log.error(f"Failed to place TP order: {e}")
         
         executed = entry_order is not None and len(errors) == 0
+        
+        # Track original position qty and TP1 qty for TP1 fill detection
+        # This is saved to position state after successful execution
+        tp1_qty = None
+        if tp_orders and len(tp_orders) >= 1:
+            # Extract TP1 qty from the first TP order spec (input parameter)
+            tp1_qty = float(tp_orders[0].get("qty", 0.0) or 0.0)
         
         return {
             "executed": executed,
             "reason": "executed" if executed else "partial_failure",
             "entry_order": entry_order,
             "sl_order": sl_order,
-            "tp_order": tp_order,
-            "errors": errors
+            "tp_order": tp_orders_result[0] if tp_orders_result else None,
+            "tp_orders": tp_orders_result,
+            "errors": errors,
+            "original_qty": float(quantity) if executed and quantity else None,
+            "tp1_qty": tp1_qty if executed and tp1_qty and tp1_qty > 0 else None,
         }
 
     def _execute_close_plan(
@@ -414,6 +514,132 @@ class ExecutionService:
 
     def plan_exit_orders(self, symbol: str, side_entry: str, sl: float | None, tp: float | None) -> Dict[str, Any]:
         return preview_exits(symbol, side_entry, sl, tp)
+    
+    def _execute_update_sltp(
+        self,
+        trade_plan: Dict[str, Any],
+        *,
+        symbol: str,
+        stop_loss: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Execute UPDATE_SLTP action: cancel existing SL and place new one at break-even."""
+        errors: List[str] = []
+        client_order_id = trade_plan.get("client_order_id")
+        new_sl_price = stop_loss.get("price")
+        new_sl_client_id = stop_loss.get("client_order_id")
+        
+        if new_sl_price is None or new_sl_price <= 0:
+            errors.append("missing_or_invalid_sl")
+            return {
+                "executed": False,
+                "reason": "invalid_sl",
+                "entry_order": None,
+                "sl_order": None,
+                "tp_order": None,
+                "errors": errors,
+            }
+        
+        # Check idempotency
+        if has_trade_identifier(new_sl_client_id):
+            stored = get_trade_identifier(new_sl_client_id) or {}
+            stored_hash = stored.get("hash")
+            expected_hash = _trade_plan_hash({"sl": new_sl_price, "client_order_id": new_sl_client_id})
+            if stored_hash and stored_hash != expected_hash:
+                kill("execution_desync", {"client_order_id": new_sl_client_id})
+                return {
+                    "executed": False,
+                    "reason": "trade_plan_mismatch",
+                    "entry_order": None,
+                    "sl_order": None,
+                    "tp_order": None,
+                    "errors": ["client_order_id_hash_mismatch"],
+                }
+            self.log.warning(f"UPDATE_SLTP already executed: {new_sl_client_id}")
+            return {
+                "executed": False,
+                "reason": "already_executed",
+                "entry_order": None,
+                "sl_order": None,
+                "tp_order": None,
+                "errors": ["duplicate_client_order_id"],
+            }
+        
+        # Get current position to determine side
+        position = self.get_position_snapshot(symbol)
+        pos_side = position.get("side")
+        if pos_side not in ("LONG", "SHORT"):
+            errors.append("no_open_position")
+            return {
+                "executed": False,
+                "reason": "no_position",
+                "entry_order": None,
+                "sl_order": None,
+                "tp_order": None,
+                "errors": errors,
+            }
+        
+        # Cancel existing SL orders
+        try:
+            open_orders = self.get_open_orders(symbol)
+            for order in open_orders:
+                order_type = str(order.get("type", "")).upper()
+                if order_type == "STOP_MARKET":
+                    order_id = order.get("orderId")
+                    if order_id:
+                        with net.execution_context():
+                            _retry_call(
+                                lambda: cancel_order_via_rest(symbol=symbol, orderId=order_id),
+                                log=self.log,
+                                label=f"cancel_sl_order({symbol},{order_id}) failed",
+                            )
+                        self.log.info(f"Cancelled existing SL order: {order_id}")
+        except Exception as e:
+            errors.append(f"cancel_sl_failed: {e}")
+            self.log.error(f"Failed to cancel existing SL: {e}")
+        
+        # Place new SL at break-even
+        exit_side = "SELL" if pos_side == "LONG" else "BUY"
+        sl_spec = {
+            "symbol": symbol,
+            "side": exit_side,
+            "type": "STOP_MARKET",
+            "stopPrice": float(new_sl_price),
+            "closePosition": True,
+            "reduceOnly": True,
+            "newClientOrderId": new_sl_client_id,
+        }
+        
+        sl_order = None
+        try:
+            _log_ledger("sltp_submitted", trade_plan, {"type": "STOP_MARKET", "action": "UPDATE_SLTP"})
+            save_trade_identifier(new_sl_client_id, _trade_plan_hash({"sl": new_sl_price, "client_order_id": new_sl_client_id}))
+            with net.execution_context():
+                sl_order = _retry_call(
+                    lambda: net.place_order_via_rest(**sl_spec),
+                    log=self.log,
+                    label=f"place_update_sl({symbol}) failed",
+                )
+            self.log.info(f"Updated SL to break-even: {new_sl_price}")
+        except Exception as e:
+            errors.append(f"update_sl_failed: {e}")
+            self.log.error(f"Failed to update SL: {e}")
+            return {
+                "executed": False,
+                "reason": "update_sl_failed",
+                "entry_order": None,
+                "sl_order": None,
+                "tp_order": None,
+                "errors": errors,
+            }
+        
+        return {
+            "executed": True,
+            "reason": "executed",
+            "entry_order": None,
+            "sl_order": sl_order,
+            "tp_order": None,
+            "errors": errors,
+        }
 
 
 def _trade_plan_hash(trade_plan: Dict[str, Any]) -> str:

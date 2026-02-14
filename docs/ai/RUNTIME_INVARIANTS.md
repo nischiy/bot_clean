@@ -1,7 +1,7 @@
 # Runtime Invariants
 
 1) Decisions are made only on closed INTERVAL candles (default 5m).
-- Enforced in: `app.run.TraderApp.run_once()` using `INTERVAL`, `_filter_closed_candles()`, and `_latest_closed_candle_ts()`.
+- Enforced in: `app.run._run_once_contracts()` using `_filter_closed_candles()` (`run.py:357,364`) and `_latest_closed_candle_ts()` (`run.py:368`), plus persisted timestamp gating (`run.py:383-394`).
 - Breakage if violated: signal could be computed on incomplete data, causing double-trigger or unstable outputs.
 
 2) No network calls at import time.
@@ -34,7 +34,8 @@
 - Breakage if violated: side effects on import, tests fail, non-deterministic behavior.
 
 7) Strict per-tick ordering (contracts pipeline).
-- Enforced in: `app.run.TraderApp.run_once()` ordering (reconcile → exits → kill → preflight → data → payload → decision → trade_plan → execution).
+- Enforced in: `app.run._run_once_contracts()` ordering (`run.py:236-684`): position snapshot → reconcile → kill → preflight → market data validation → payload → decision → trade_plan → execution.
+- Exact order: See `docs/ai/RUNTIME_FLOW.md` for step-by-step breakdown with code references.
 - Breakage if violated: side effects or decisions occur before safety checks.
 
 8) Preflight and market data can block execution.
@@ -53,7 +54,8 @@
 
 11) Strategy determinism.
 - Status: ENFORCED.
-- Assumption: `app.strategy.decision_engine.make_decision(payload)` returns identical output for identical payload.json.
+- Assumption: `app.strategy.decision_engine.make_decision(payload, daily_state, decision_state)` returns identical output for identical inputs.
+- Note: Decision state updates via `state_update` field may cause different outputs on subsequent calls with same payload (by design).
 - Enforcement: deterministic test in `tests/test_decision_engine.py`.
 - Impact if violated: inconsistent decisions under identical data, breaking reproducibility.
 
@@ -71,7 +73,8 @@
 - Impact if violated: strategy could trade on incomplete HTF trend data.
 
 15) Strategy priority order and time-exit precedence.
-- Enforced in: `app.strategy.decision_engine.make_decision()` (TIME_EXIT first, then BREAKOUT → PULLBACK → CONTINUATION → RANGE → HOLD).
+- Enforced in: `app.strategy.decision_engine.make_decision()` - time-exit checked first (`decision_engine.py`), then regime detection (`_detect_regime`), then strategy routing (`select_strategy_by_regime`).
+- Regime detection order (top-down, exclusive): EVENT → SQUEEZE_BREAK → BREAKOUT_EXPANSION → COMPRESSION → TREND_ACCEL → TREND_CONTINUATION → PULLBACK → RANGE (`decision_engine.py:353-383`).
 - Impact if violated: multiple strategies could trigger in the same candle or entries could bypass exit intents.
 
 16) Equity is required for payload validity.

@@ -9,13 +9,14 @@
     "price": {"type": "number"},
     "client_order_id": {"type": "string"},
     "timeframe": {"type": "string"},
-    "action": {"type": "string", "enum": ["OPEN", "CLOSE"]},
+    "action": {"type": "string", "enum": ["OPEN", "CLOSE", "UPDATE_SLTP"]},
     "stop_loss": {
       "type": "object",
       "required": ["price", "client_order_id"],
       "properties": {
         "price": {"type": "number"},
-        "client_order_id": {"type": "string"}
+        "client_order_id": {"type": "string"},
+        "quantity": {"type": "number"}
       }
     },
     "take_profit": {
@@ -24,6 +25,20 @@
       "properties": {
         "price": {"type": "number"},
         "client_order_id": {"type": "string"}
+      }
+    },
+    "tp_orders": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "take_price", "qty", "reduce_only", "client_order_id"],
+        "properties": {
+          "type": {"type": "string", "enum": ["TAKE_PROFIT_MARKET"]},
+          "take_price": {"type": "number"},
+          "qty": {"type": "number"},
+          "reduce_only": {"type": "boolean"},
+          "client_order_id": {"type": "string"}
+        }
       }
     },
     "leverage": {"type": "integer"},
@@ -39,12 +54,15 @@
         "quantity",
         "client_order_id",
         "stop_loss",
-        "take_profit",
         "action"
       ],
       "properties": {
         "action": {"const": "OPEN"}
-      }
+      },
+      "anyOf": [
+        {"required": ["take_profit"]},
+        {"required": ["tp_orders"]}
+      ]
     },
     {
       "required": [
@@ -57,6 +75,19 @@
       ],
       "properties": {
         "action": {"const": "CLOSE"}
+      }
+    },
+    {
+      "required": [
+        "symbol",
+        "side",
+        "type",
+        "client_order_id",
+        "stop_loss",
+        "action"
+      ],
+      "properties": {
+        "action": {"const": "UPDATE_SLTP"}
       }
     }
   ]

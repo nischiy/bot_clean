@@ -23,6 +23,21 @@
     "rr": {
       "type": "number"
     },
+    "tp_targets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["price", "rr", "qty_frac"],
+        "properties": {
+          "price": {"type": "number"},
+          "rr": {"type": "number"},
+          "qty_frac": {"type": "number", "minimum": 0, "maximum": 1}
+        }
+      }
+    },
+    "move_sl_to_be_after_tp1": {
+      "type": "boolean"
+    },
     "strategy": {
       "type": "string"
     },

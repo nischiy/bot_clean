@@ -34,6 +34,8 @@ def _df_for_close(ts: pd.Timestamp) -> pd.DataFrame:
 
 @pytest.mark.critical
 def test_closed_candle_gating(monkeypatch, tmp_path):
+    from core.config.fingerprint import initialize_config_fingerprint
+    initialize_config_fingerprint()
     t1 = pd.Timestamp("2024-01-01T01:00:00Z")
     t2 = pd.Timestamp("2024-01-01T01:05:00Z")
     df1 = _df_for_close(t1)
@@ -113,7 +115,7 @@ def test_closed_candle_gating(monkeypatch, tmp_path):
         }, [])
 
     monkeypatch.setattr("app.data.payload_builder.build_payload", _build_payload)
-    monkeypatch.setattr("app.strategy.decision_engine.make_decision", lambda _p, _d=None: {"intent": "HOLD", "reject_reasons": []})
+    monkeypatch.setattr("app.strategy.decision_engine.make_decision", lambda _p, _d=None, _s=None: {"intent": "HOLD", "reject_reasons": []})
     monkeypatch.setattr("app.risk.risk_manager.create_trade_plan", lambda *_a, **_k: (None, ["hold"]))
 
     app.run_once()
@@ -127,7 +129,9 @@ def test_closed_candle_gating(monkeypatch, tmp_path):
 
 @pytest.mark.critical
 def test_closed_candle_gating_restart(monkeypatch, tmp_path):
+    from core.config.fingerprint import initialize_config_fingerprint
     from app.state import state_manager
+    initialize_config_fingerprint()
     t1 = pd.Timestamp("2024-01-01T01:00:00Z")
     df1 = _df_for_close(t1)
 

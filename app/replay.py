@@ -164,8 +164,12 @@ def run_replay(
             continue
 
         payload_hash = hash_json(payload)
-        decision = make_decision(payload, daily_state)
+        decision_state = state_manager.load_decision_state(symbol)
+        decision = make_decision(payload, daily_state, decision_state)
         decision_hash = hash_json(decision)
+        state_update = decision.get("state_update")
+        if isinstance(state_update, dict):
+            state_manager.save_decision_state(symbol, state_update)
         append_event(
             event_type="decision_created",
             symbol=symbol,

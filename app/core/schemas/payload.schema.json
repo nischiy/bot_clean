@@ -152,6 +152,8 @@
         "close": {"type": "number"},
         "trend": {"type": "string", "enum": ["up", "down", "range"]},
         "atr14": {"type": "number"},
+        "atr14_percentile": {"type": "number"},
+        "session_bucket": {"type": "string", "enum": ["Asia", "London", "NY", "Overlap", "Unknown"]},
         "timeframe": {"type": "string"}
       }
     },

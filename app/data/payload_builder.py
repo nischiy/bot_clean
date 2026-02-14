@@ -236,6 +236,26 @@ def _compute_rsi(df: pd.DataFrame, period: int = 14) -> Optional[float]:
     return None
 
 
+def _compute_rsi_series(df: pd.DataFrame, period: int = 14) -> Optional[pd.Series]:
+    """Compute RSI series."""
+    if df is None or df.empty or len(df) < period + 1:
+        return None
+    close_col = df.get("close") if "close" in df.columns else df.get("Close")
+    if close_col is None:
+        return None
+    try:
+        delta = close_col.diff()
+        gain = delta.clip(lower=0.0)
+        loss = (-delta).clip(lower=0.0)
+        avg_gain = gain.rolling(period).mean()
+        avg_loss = loss.rolling(period).mean()
+        rs = avg_gain / avg_loss.replace(0, pd.NA)
+        rsi_series = 100.0 - (100.0 / (1.0 + rs))
+        return rsi_series if len(rsi_series) == len(close_col) else None
+    except Exception:
+        return None
+
+
 def _compute_bollinger(
     df: pd.DataFrame, period: int = 20, std_mult: float = 2.0
 ) -> Tuple[Optional[float], Optional[float], Optional[float]]:
@@ -466,10 +486,16 @@ def build_payload(
     close_prev = _safe_float(close_col.iloc[-2]) if close_col is not None and len(close_col) > 1 else None
     open_col = df_ltf.get("open") if df_ltf is not None and hasattr(df_ltf, "columns") else None
     open_ltf = _safe_float(open_col.iloc[-1]) if open_col is not None and not open_col.empty else None
+    open_prev = _safe_float(open_col.iloc[-2]) if open_col is not None and len(open_col) > 1 else None
     high_col = df_ltf.get("high") if df_ltf is not None and hasattr(df_ltf, "columns") else None
     low_col = df_ltf.get("low") if df_ltf is not None and hasattr(df_ltf, "columns") else None
     high_ltf = _safe_float(high_col.iloc[-1]) if high_col is not None and not high_col.empty else None
     low_ltf = _safe_float(low_col.iloc[-1]) if low_col is not None and not low_col.empty else None
+    high_prev = _safe_float(high_col.iloc[-2]) if high_col is not None and len(high_col) > 1 else None
+    low_prev = _safe_float(low_col.iloc[-2]) if low_col is not None and len(low_col) > 1 else None
+    volume_col = df_ltf.get("volume") if df_ltf is not None and hasattr(df_ltf, "columns") else None
+    volume_ltf = _safe_float(volume_col.iloc[-1]) if volume_col is not None and not volume_col.empty else None
+    volume_prev = _safe_float(volume_col.iloc[-2]) if volume_col is not None and len(volume_col) > 1 else None
     ema50_ltf = _compute_ema(df_ltf, 50)
     ema50_prev_12 = _compute_ema_at(df_ltf, 50, 12)
     ema120_ltf = _compute_ema(df_ltf, 120)
@@ -487,20 +513,9 @@ def build_payload(
         except Exception:
             candle_body_ratio = None
     rsi14_prev = None
-    if df_ltf is not None and not df_ltf.empty and len(df_ltf) > 1:
-        try:
-            close_series = df_ltf.get("close") if "close" in df_ltf.columns else df_ltf.get("Close")
-            if close_series is not None and len(close_series) > 1:
-                delta = close_series.diff()
-                gain = delta.clip(lower=0.0)
-                loss = (-delta).clip(lower=0.0)
-                avg_gain = gain.rolling(14).mean()
-                avg_loss = loss.rolling(14).mean()
-                rs = avg_gain / avg_loss.replace(0, pd.NA)
-                rsi_series = 100.0 - (100.0 / (1.0 + rs))
-                rsi14_prev = _safe_float(rsi_series.iloc[-2])
-        except Exception:
-            rsi14_prev = None
+    rsi_series_ltf = _compute_rsi_series(df_ltf, 14)
+    if rsi_series_ltf is not None and len(rsi_series_ltf) > 1:
+        rsi14_prev = _safe_float(rsi_series_ltf.iloc[-2])
 
     close_series_ltf = df_ltf.get("close") if df_ltf is not None and hasattr(df_ltf, "get") else None
     ema50_series = _ema_series(df_ltf, 50) if df_ltf is not None and not df_ltf.empty else None
@@ -525,6 +540,71 @@ def build_payload(
         close_max_n = _safe_float(close_series_ltf.iloc[-time_exit_bars:].max())
         close_min_n = _safe_float(close_series_ltf.iloc[-time_exit_bars:].min())
 
+    stability_n = max(settings.get_int("STABILITY_N"), 1)
+    trend_candles_below_ema50 = None
+    trend_candles_above_ema50 = None
+    wick_ratio_count = None
+    if (
+        df_ltf is not None
+        and not df_ltf.empty
+        and len(df_ltf) >= stability_n
+        and ema50_series is not None
+        and close_series_ltf is not None
+        and high_col is not None
+        and low_col is not None
+        and open_col is not None
+    ):
+        try:
+            close_tail = close_series_ltf.iloc[-stability_n:]
+            ema_tail = ema50_series.iloc[-stability_n:]
+            trend_candles_below_ema50 = int((close_tail < ema_tail).sum())
+            trend_candles_above_ema50 = int((close_tail > ema_tail).sum())
+            open_tail = open_col.iloc[-stability_n:]
+            high_tail = high_col.iloc[-stability_n:]
+            low_tail = low_col.iloc[-stability_n:]
+            body = (close_tail - open_tail).abs()
+            upper = high_tail - pd.concat([open_tail, close_tail], axis=1).max(axis=1)
+            lower = pd.concat([open_tail, close_tail], axis=1).min(axis=1) - low_tail
+            wick_ratio = (upper + lower) / body.replace(0, 1e-9)
+            wick_th = settings.get_float("WICK_TH")
+            wick_ratio_count = int((wick_ratio > wick_th).sum())
+        except Exception:
+            trend_candles_below_ema50 = None
+            trend_candles_above_ema50 = None
+            wick_ratio_count = None
+
+    bb_width = None
+    bb_width_prev = None
+    if df_ltf is not None and not df_ltf.empty and len(df_ltf) >= 21:
+        close_series = df_ltf.get("close") if "close" in df_ltf.columns else df_ltf.get("Close")
+        if close_series is not None:
+            try:
+                mid_series = close_series.rolling(20).mean()
+                std_series = close_series.rolling(20).std(ddof=0)
+                upper_series = mid_series + 2.0 * std_series
+                lower_series = mid_series - 2.0 * std_series
+                width_series = upper_series - lower_series
+                bb_width = _safe_float(width_series.iloc[-1])
+                bb_width_prev = _safe_float(width_series.iloc[-2])
+            except Exception:
+                bb_width = None
+                bb_width_prev = None
+
+    confirm_swing_m = max(settings.get_int("CONFIRM_SWING_M"), 2)
+    swing_high_m = None
+    swing_low_m = None
+    if df_ltf is not None and not df_ltf.empty and len(df_ltf) >= confirm_swing_m + 1:
+        if high_col is not None and low_col is not None:
+            try:
+                swing_high_m = _safe_float(high_col.iloc[-(confirm_swing_m + 1):-1].max())
+                swing_low_m = _safe_float(low_col.iloc[-(confirm_swing_m + 1):-1].min())
+            except Exception:
+                swing_high_m = None
+                swing_low_m = None
+
+    confirm_donchian_k = max(settings.get_int("CONFIRM_DONCHIAN_K"), 2)
+    donchian_high_k, donchian_low_k = _compute_donchian(df_ltf, confirm_donchian_k)
+
     if close_ltf is None:
         errors.append("missing_close_ltf")
     if close_prev is None and close_ltf is not None:
@@ -533,10 +613,14 @@ def build_payload(
         rsi14_prev = rsi14
 
     features_ltf = {
+        "open": open_ltf if open_ltf is not None else -1.0,
+        "open_prev": open_prev if open_prev is not None else -1.0,
         "close": close_ltf if close_ltf is not None else -1.0,
         "close_prev": close_prev if close_prev is not None else -1.0,
         "high": high_ltf if high_ltf is not None else -1.0,
         "low": low_ltf if low_ltf is not None else -1.0,
+        "high_prev": high_prev if high_prev is not None else -1.0,
+        "low_prev": low_prev if low_prev is not None else -1.0,
         "ema50": ema50_ltf if ema50_ltf is not None else -1.0,
         "ema50_prev_12": ema50_prev_12 if ema50_prev_12 is not None else -1.0,
         "ema120": ema120_ltf if ema120_ltf is not None else -1.0,
@@ -544,6 +628,8 @@ def build_payload(
         "donchian_low_240": donchian_low if donchian_low is not None else -1.0,
         "donchian_high_20": donchian_high_20 if donchian_high_20 is not None else -1.0,
         "donchian_low_20": donchian_low_20 if donchian_low_20 is not None else -1.0,
+        "donchian_high_k": donchian_high_k if donchian_high_k is not None else -1.0,
+        "donchian_low_k": donchian_low_k if donchian_low_k is not None else -1.0,
         "consec_close_above_donchian_20": consec_close_above_donchian_20 if consec_close_above_donchian_20 is not None else -1.0,
         "consec_close_below_donchian_20": consec_close_below_donchian_20 if consec_close_below_donchian_20 is not None else -1.0,
         "atr14": atr14 if atr14 is not None else -1.0,
@@ -551,7 +637,11 @@ def build_payload(
         "bb_upper": bb_upper if bb_upper is not None else -1.0,
         "bb_lower": bb_lower if bb_lower is not None else -1.0,
         "bb_mid": bb_mid if bb_mid is not None else -1.0,
+        "bb_width": bb_width if bb_width is not None else -1.0,
+        "bb_width_prev": bb_width_prev if bb_width_prev is not None else -1.0,
         "volume_ratio": volume_ratio if volume_ratio is not None else -1.0,
+        "volume": volume_ltf if volume_ltf is not None else -1.0,
+        "volume_prev": volume_prev if volume_prev is not None else -1.0,
         "candle_body_ratio": candle_body_ratio if candle_body_ratio is not None else -1.0,
         "rsi14": rsi14 if rsi14 is not None else -1.0,
         "rsi14_prev": rsi14_prev if rsi14_prev is not None else -1.0,
@@ -562,15 +652,27 @@ def build_payload(
         "close_max_n": close_max_n if close_max_n is not None else -1.0,
         "close_min_n": close_min_n if close_min_n is not None else -1.0,
         "time_exit_bars": time_exit_bars,
+        "stability_n": stability_n,
+        "trend_candles_below_ema50": trend_candles_below_ema50 if trend_candles_below_ema50 is not None else -1.0,
+        "trend_candles_above_ema50": trend_candles_above_ema50 if trend_candles_above_ema50 is not None else -1.0,
+        "wick_ratio_count": wick_ratio_count if wick_ratio_count is not None else -1.0,
+        "swing_high_m": swing_high_m if swing_high_m is not None else -1.0,
+        "swing_low_m": swing_low_m if swing_low_m is not None else -1.0,
     }
 
     # HTF Context (1h default)
     ema200_htf = _compute_ema(df_htf, 200) if df_htf is not None and not df_htf.empty else None
+    htf_ema_period = max(settings.get_int("HTF_EMA_PERIOD"), 1)
+    ema_fast_htf = _compute_ema(df_htf, htf_ema_period) if df_htf is not None and not df_htf.empty else None
     htf_slope_n = max(settings.get_int("HTF_TREND_SLOPE_N"), 1)
     ema200_prev_n = _compute_ema_at(df_htf, 200, htf_slope_n) if df_htf is not None and not df_htf.empty else None
     atr14_htf = _compute_atr(df_htf, 14) if df_htf is not None and not df_htf.empty else None
     close_col_htf = df_htf.get("close") if df_htf is not None and hasattr(df_htf, "columns") else None
     close_htf = _safe_float(close_col_htf.iloc[-1]) if close_col_htf is not None and not close_col_htf.empty else None
+    rsi_period_htf = max(settings.get_int("HTF_RSI_PERIOD"), 1)
+    rsi_series_htf = _compute_rsi_series(df_htf, rsi_period_htf) if df_htf is not None and not df_htf.empty else None
+    rsi_htf = _safe_float(rsi_series_htf.iloc[-1]) if rsi_series_htf is not None and len(rsi_series_htf) else None
+    rsi_htf_prev = _safe_float(rsi_series_htf.iloc[-2]) if rsi_series_htf is not None and len(rsi_series_htf) > 1 else None
     trend = _determine_trend(df_htf, ema200_htf) if df_htf is not None and not df_htf.empty else "range"
     ema200_series_htf = _ema_series(df_htf, 200) if df_htf is not None and not df_htf.empty else None
     consec_above_ema200 = _count_consecutive_cross(close_col_htf, ema200_series_htf, side="above", end_index=-1)
@@ -580,9 +682,58 @@ def build_payload(
     ema200_slope_norm = None
     if ema200_htf is not None and ema200_prev_n is not None and atr14_htf is not None and atr14_htf > 0:
         ema200_slope_norm = abs(ema200_htf - ema200_prev_n) / (atr14_htf * htf_slope_n)
+    
+    # Compute HTF ATR14 percentile (over last N candles, e.g., 720 for 30d on 1h)
+    htf_atr14_percentile = None
+    if df_htf is not None and not df_htf.empty and atr14_htf is not None:
+        try:
+            # Compute ATR14 series for HTF
+            htf_high_col = df_htf.get("high") if "high" in df_htf.columns else df_htf.get("High")
+            htf_low_col = df_htf.get("low") if "low" in df_htf.columns else df_htf.get("Low")
+            htf_close_col = df_htf.get("close") if "close" in df_htf.columns else df_htf.get("Close")
+            if htf_high_col is not None and htf_low_col is not None and htf_close_col is not None:
+                htf_periods = min(720, len(df_htf))  # 30 days on 1h = 720 candles
+                if len(df_htf) >= 14:
+                    prev_close_htf = htf_close_col.shift(1).fillna(htf_close_col)
+                    tr1_htf = htf_high_col - htf_low_col
+                    tr2_htf = (htf_high_col - prev_close_htf).abs()
+                    tr3_htf = (htf_low_col - prev_close_htf).abs()
+                    tr_htf = pd.concat([tr1_htf, tr2_htf, tr3_htf], axis=1).max(axis=1)
+                    atr14_series_htf = tr_htf.rolling(14).mean()
+                    atr14_tail = atr14_series_htf.iloc[-htf_periods:].dropna()
+                    if len(atr14_tail) > 0:
+                        current_atr = atr14_htf
+                        percentile = (atr14_tail <= current_atr).sum() / len(atr14_tail) * 100.0
+                        htf_atr14_percentile = _safe_float(percentile)
+        except Exception:
+            htf_atr14_percentile = None
+    
+    # Compute session bucket from timestamp_closed (UTC)
+    session_bucket = "Unknown"
+    try:
+        from datetime import datetime, timezone
+        dt = datetime.fromtimestamp(timestamp_closed, tz=timezone.utc)
+        hour_utc = dt.hour
+        # Asia: 00:00-08:00 UTC
+        # London: 08:00-16:00 UTC
+        # NY: 13:00-21:00 UTC (overlap with London 13:00-16:00)
+        # Overlap: 13:00-16:00 UTC (London + NY)
+        if 0 <= hour_utc < 8:
+            session_bucket = "Asia"
+        elif 8 <= hour_utc < 13:
+            session_bucket = "London"
+        elif 13 <= hour_utc < 16:
+            session_bucket = "Overlap"
+        elif 16 <= hour_utc < 21:
+            session_bucket = "NY"
+        else:  # 21:00-24:00 UTC
+            session_bucket = "Asia"
+    except Exception:
+        session_bucket = "Unknown"
 
     context_htf = {
         "ema200": ema200_htf if ema200_htf is not None else -1.0,
+        "ema_fast": ema_fast_htf if ema_fast_htf is not None else -1.0,
         "ema200_prev_n": ema200_prev_n if ema200_prev_n is not None else -1.0,
         "ema200_slope_norm": ema200_slope_norm if ema200_slope_norm is not None else -1.0,
         "consec_above_ema200": consec_above_ema200 if consec_above_ema200 is not None else -1.0,
@@ -590,8 +741,12 @@ def build_payload(
         "consec_higher_close": consec_higher_close if consec_higher_close is not None else -1.0,
         "consec_lower_close": consec_lower_close if consec_lower_close is not None else -1.0,
         "close": close_htf if close_htf is not None else -1.0,
+        "rsi14": rsi_htf if rsi_htf is not None else -1.0,
+        "rsi14_prev": rsi_htf_prev if rsi_htf_prev is not None else -1.0,
         "trend": trend,
         "atr14": atr14_htf if atr14_htf is not None else -1.0,
+        "atr14_percentile": htf_atr14_percentile if htf_atr14_percentile is not None else -1.0,
+        "session_bucket": session_bucket,
         "timeframe": htf_timeframe,
     }
     

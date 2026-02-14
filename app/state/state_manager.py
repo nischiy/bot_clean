@@ -174,6 +174,30 @@ def load_trade_cooldown_state() -> Dict[str, Any]:
         return {"LONG": None, "SHORT": None}
 
 
+def load_decision_state(symbol: str) -> Dict[str, Any]:
+    """Load persistent decision state (pending entries, event cooldown)."""
+    state_file = _state_file(f"decision_state_{symbol.upper()}")
+    if not state_file.exists():
+        return {"symbol": symbol.upper(), "pending_entry": None, "event_cooldown": {"remaining": 0, "last_ts": None}}
+    try:
+        with open(state_file, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+            if payload.get("symbol") != symbol.upper():
+                return {"symbol": symbol.upper(), "pending_entry": None, "event_cooldown": {"remaining": 0, "last_ts": None}}
+            return payload
+    except Exception:
+        return {"symbol": symbol.upper(), "pending_entry": None, "event_cooldown": {"remaining": 0, "last_ts": None}}
+
+
+def save_decision_state(symbol: str, state: Dict[str, Any]) -> None:
+    """Persist decision state for restart-safe gating."""
+    payload = dict(state or {})
+    payload["symbol"] = symbol.upper()
+    payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+    with open(_state_file(f"decision_state_{symbol.upper()}"), "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+
+
 def save_trade_cooldown_state(state: Dict[str, Any]) -> None:
     payload = {
         "LONG": state.get("LONG"),
@@ -245,9 +269,10 @@ def reconcile_positions(
     
     Returns:
         (ok: bool, errors: List[str])
-        - If ok is False, trading should be stopped
+        - If ok is False, trading should be stopped (HARD STOP)
     """
     errors = []
+    open_orders = open_orders or []
     
     # Check local state consistency if provided
     if local_state:
@@ -268,23 +293,47 @@ def reconcile_positions(
                 errors.append("local_state_mismatch: qty")
                 return False, errors
 
-    # Check for positions without SL/TP
-    for pos in exchange_positions:
+    # Check for positions without SL/TP (HARD REQUIREMENT)
+    open_positions = [p for p in exchange_positions if float(p.get("positionAmt", 0) or 0) != 0.0]
+    for pos in open_positions:
         pos_amt = float(pos.get("positionAmt", 0) or 0)
         if pos_amt != 0:
             pos_side = "LONG" if pos_amt > 0 else "SHORT"
-            if not _has_protective_sl(pos_side, open_orders or []):
-                errors.append(f"position_without_sl: {pos_side} qty={abs(pos_amt)}")
-            if require_tp and not _has_protective_tp(pos_side, open_orders or []):
-                errors.append(f"position_without_tp: {pos_side} qty={abs(pos_amt)}")
+            pos_qty = abs(pos_amt)
+            if not _has_protective_sl(pos_side, open_orders):
+                errors.append(f"position_without_sl: {pos_side} qty={pos_qty}")
+            if require_tp and not _has_protective_tp(pos_side, open_orders):
+                errors.append(f"position_without_tp: {pos_side} qty={pos_qty}")
     
-    # Check for multiple positions
-    open_positions = [p for p in exchange_positions if float(p.get("positionAmt", 0) or 0) != 0.0]
+    # Check for multiple positions (HARD STOP)
     if len(open_positions) > 1:
         errors.append(f"multiple_positions: {len(open_positions)}")
         return False, errors
     
-    return len(errors) == 0, errors
+    # Detect orphan orders: orders without corresponding position
+    if open_positions:
+        # We have a position, check for orphan orders
+        pos_side = "LONG" if float(open_positions[0].get("positionAmt", 0) or 0) > 0 else "SHORT"
+        expected_exit_side = "SELL" if pos_side == "LONG" else "BUY"
+        for order in open_orders:
+            order_side = str(order.get("side", "")).upper()
+            order_type = str(order.get("type", "")).upper()
+            # Orphan: exit order (SL/TP) for opposite side or wrong symbol
+            if order_type in {"STOP_MARKET", "TAKE_PROFIT_MARKET", "STOP", "TAKE_PROFIT"}:
+                if order_side != expected_exit_side:
+                    errors.append(f"orphan_order: {order_type} side={order_side} expected={expected_exit_side} orderId={order.get('orderId')}")
+    else:
+        # No position, all SL/TP orders are orphans
+        for order in open_orders:
+            order_type = str(order.get("type", "")).upper()
+            if order_type in {"STOP_MARKET", "TAKE_PROFIT_MARKET", "STOP", "TAKE_PROFIT"}:
+                errors.append(f"orphan_order: {order_type} without position orderId={order.get('orderId')}")
+    
+    # HARD STOP: any inconsistency must stop trading
+    if errors:
+        return False, errors
+    
+    return True, []
 
 def initialize_daily_state(equity: float, *, now: Optional[datetime] = None) -> Dict[str, Any]:
     """Initialize daily state for a new UTC trading day."""

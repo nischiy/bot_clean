@@ -7,12 +7,13 @@ from __future__ import annotations
 
 import time
 import uuid
+import math
 from typing import Dict, Any, List, Tuple, Optional
 
 from core.risk_guard import is_killed, evaluate
 from core.config import settings
 from app.core.validation import validate_trade_plan
-from app.risk.position_sizing import calculate_position_size
+from app.risk.position_sizing import calculate_position_size, round_to_step
 from app.state.state_manager import load_trade_cooldown_state
 
 
@@ -114,7 +115,7 @@ def create_trade_plan(
     rejections = []
     
     intent = decision.get("intent")
-    if intent not in ("LONG", "SHORT", "CLOSE"):
+    if intent not in ("LONG", "SHORT", "CLOSE", "UPDATE_SLTP"):
         rejections.append(f"invalid_intent: {intent}")
         return None, rejections
     
@@ -145,6 +146,7 @@ def create_trade_plan(
     entry = decision.get("entry")
     sl = decision.get("sl")
     tp = decision.get("tp")
+    tp_targets = decision.get("tp_targets", [])
     account_state = payload.get("account_state", {})
     exchange_limits = payload.get("exchange_limits", {})
     risk_policy = payload.get("risk_policy", {})
@@ -153,6 +155,50 @@ def create_trade_plan(
         rejections.append("missing_symbol")
         return None, rejections
     
+    # Handle UPDATE_SLTP action
+    if intent == "UPDATE_SLTP":
+        pos_state = payload.get("position_state", {})
+        pos_side = pos_state.get("side")
+        pos_qty = float(pos_state.get("qty", 0.0) or 0.0)
+        pos_entry = float(pos_state.get("entry", 0.0) or 0.0)
+        new_sl = decision.get("sl")
+        
+        if pos_side not in ("LONG", "SHORT") or pos_qty <= 0:
+            rejections.append("missing_or_invalid_position")
+            return None, rejections
+        if new_sl is None or new_sl <= 0:
+            rejections.append("missing_or_invalid_sl")
+            return None, rejections
+        
+        ts = payload.get("market_identity", {}).get("timestamp_closed")
+        if ts is None:
+            rejections.append("missing_timestamp_closed")
+            return None, rejections
+        
+        base_id = f"{symbol}-{int(ts)}-updatesltp"
+        trade_plan = {
+            "symbol": symbol,
+            "side": "BUY" if pos_side == "LONG" else "SELL",
+            "type": "MARKET",
+            "client_order_id": f"{base_id}-sltp",
+            "timeframe": payload.get("market_identity", {}).get("timeframe"),
+            "action": "UPDATE_SLTP",
+            "stop_loss": {
+                "price": new_sl,
+                "client_order_id": f"{base_id}-sl"
+            },
+            "leverage": account_state.get("leverage", 1),
+            "margin_type": account_state.get("margin_type", "isolated"),
+            "timestamp": int(ts)
+        }
+        
+        is_valid, validation_errors = validate_trade_plan(trade_plan)
+        if not is_valid:
+            rejections.extend(validation_errors)
+            return None, rejections
+        
+        return trade_plan, []
+    
     if intent in ("LONG", "SHORT"):
         if entry is None or entry <= 0:
             rejections.append("missing_or_invalid_entry")
@@ -160,7 +206,8 @@ def create_trade_plan(
         if sl is None or sl <= 0:
             rejections.append("missing_or_invalid_sl")
             return None, rejections
-        if tp is None or tp <= 0:
+        # Allow either tp or tp_targets
+        if not tp_targets and (tp is None or tp <= 0):
             rejections.append("missing_or_invalid_tp")
             return None, rejections
     
@@ -196,6 +243,11 @@ def create_trade_plan(
         if qty is None:
             rejections.extend(sizing_errors)
             return None, rejections
+        # Optional: reduce size by 30% when adaptive_soft_stability (soft zone + confirm + volume ok)
+        adaptive_enabled = settings.get_bool("ADAPTIVE_SOFT_STABILITY_ENABLED", False)
+        if adaptive_enabled and decision.get("signal", {}).get("adaptive_soft_stability"):
+            qty = round_to_step(float(qty) * 0.7, step_size)
+            qty = max(qty, min_qty) if min_qty and qty is not None else qty
     else:
         pos_state = payload.get("position_state", {})
         pos_side = pos_state.get("side")
@@ -214,30 +266,103 @@ def create_trade_plan(
     base_id = f"{symbol}-{int(ts)}"
     entry_order_id = f"{base_id}-entry"
     sl_order_id = f"{base_id}-sl"
-    tp_order_id = f"{base_id}-tp"
     
     # Build trade plan
     if intent in ("LONG", "SHORT"):
-        trade_plan = {
-            "symbol": symbol,
-            "side": "BUY" if intent == "LONG" else "SELL",
-            "type": "MARKET",
-            "quantity": qty,
-            "client_order_id": entry_order_id,
-            "timeframe": payload.get("market_identity", {}).get("timeframe"),
-            "action": "OPEN",
-            "stop_loss": {
-                "price": sl,
-                "client_order_id": sl_order_id
-            },
-            "take_profit": {
-                "price": tp,
-                "client_order_id": tp_order_id
-            },
-            "leverage": leverage,
-            "margin_type": account_state.get("margin_type", "isolated"),
-            "timestamp": int(ts)
-        }
+        # Split quantity if we have tp_targets, otherwise use single TP
+        step_size = exchange_limits.get("step_size", 0.0)
+        min_qty = exchange_limits.get("min_qty", 0.0)
+        
+        if tp_targets and len(tp_targets) >= 2:
+            # Multiple TP orders: split qty using TP1_FRACTION
+            tp1_fraction = settings.get_float("TP1_FRACTION", 0.4)
+            qty_tp1_raw = qty * tp1_fraction
+            qty_tp2_raw = qty * (1.0 - tp1_fraction)
+            
+            # Round to step_size
+            qty_tp1 = round_to_step(qty_tp1_raw, step_size)
+            qty_tp2 = round_to_step(qty_tp2_raw, step_size)
+            
+            # Ensure minimum quantities
+            if qty_tp1 < min_qty or qty_tp2 < min_qty:
+                rejections.append(
+                    f"min_qty_not_met_after_split: qty_tp1={qty_tp1} qty_tp2={qty_tp2} min_qty={min_qty}"
+                )
+                return None, rejections
+            
+            # Adjust to ensure qty_tp1 + qty_tp2 == qty_total after rounding
+            qty_total_rounded = qty_tp1 + qty_tp2
+            if abs(qty_total_rounded - qty) > step_size:
+                # Adjust qty_tp2 to match total
+                qty_tp2 = round_to_step(qty - qty_tp1, step_size)
+                qty_total_rounded = qty_tp1 + qty_tp2
+            
+            if abs(qty_total_rounded - qty) > step_size * 0.5:
+                rejections.append(
+                    f"qty_split_mismatch: qty={qty} qty_tp1={qty_tp1} qty_tp2={qty_tp2} total={qty_total_rounded}"
+                )
+                return None, rejections
+            
+            # Use qty_total_rounded as final qty
+            qty_final = qty_total_rounded
+            
+            # Create tp_orders array
+            tp_orders = []
+            for i, target in enumerate(tp_targets[:2], 1):  # Limit to 2 TPs
+                tp_price = target.get("price")
+                if tp_price is None or tp_price <= 0:
+                    rejections.append(f"invalid_tp{i}_price")
+                    return None, rejections
+                
+                tp_qty = qty_tp1 if i == 1 else qty_tp2
+                tp_orders.append({
+                    "type": "TAKE_PROFIT_MARKET",
+                    "take_price": tp_price,
+                    "qty": tp_qty,
+                    "reduce_only": True,
+                    "client_order_id": f"{base_id}:tp{i}"
+                })
+            
+            trade_plan = {
+                "symbol": symbol,
+                "side": "BUY" if intent == "LONG" else "SELL",
+                "type": "MARKET",
+                "quantity": qty_final,
+                "client_order_id": entry_order_id,
+                "timeframe": payload.get("market_identity", {}).get("timeframe"),
+                "action": "OPEN",
+                "stop_loss": {
+                    "price": sl,
+                    "client_order_id": sl_order_id
+                },
+                "tp_orders": tp_orders,
+                "leverage": leverage,
+                "margin_type": account_state.get("margin_type", "isolated"),
+                "timestamp": int(ts)
+            }
+        else:
+            # Single TP (backward compatible)
+            tp_order_id = f"{base_id}-tp"
+            trade_plan = {
+                "symbol": symbol,
+                "side": "BUY" if intent == "LONG" else "SELL",
+                "type": "MARKET",
+                "quantity": qty,
+                "client_order_id": entry_order_id,
+                "timeframe": payload.get("market_identity", {}).get("timeframe"),
+                "action": "OPEN",
+                "stop_loss": {
+                    "price": sl,
+                    "client_order_id": sl_order_id
+                },
+                "take_profit": {
+                    "price": tp,
+                    "client_order_id": tp_order_id
+                },
+                "leverage": leverage,
+                "margin_type": account_state.get("margin_type", "isolated"),
+                "timestamp": int(ts)
+            }
     else:
         close_side = "SELL" if payload.get("position_state", {}).get("side") == "LONG" else "BUY"
         trade_plan = {

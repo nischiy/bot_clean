@@ -211,6 +211,65 @@ def test_validate_trade_plan_close():
     assert isinstance(errors, list)
 
 
+def test_validate_trade_plan_with_tp_orders():
+    """Test validation of trade plan with multiple TP orders."""
+    trade_plan = {
+        "symbol": "BTCUSDT",
+        "side": "BUY",
+        "type": "MARKET",
+        "quantity": 0.1,
+        "client_order_id": "test-order-123",
+        "action": "OPEN",
+        "stop_loss": {
+            "price": 49100.0,
+            "client_order_id": "test-order-123-sl"
+        },
+        "tp_orders": [
+            {
+                "type": "TAKE_PROFIT_MARKET",
+                "take_price": 51000.0,
+                "qty": 0.04,
+                "reduce_only": True,
+                "client_order_id": "test-order-123-tp1"
+            },
+            {
+                "type": "TAKE_PROFIT_MARKET",
+                "take_price": 51500.0,
+                "qty": 0.06,
+                "reduce_only": True,
+                "client_order_id": "test-order-123-tp2"
+            }
+        ],
+        "leverage": 5,
+        "margin_type": "isolated",
+        "timestamp": 1234567890
+    }
+    ok, errors = validate_trade_plan(trade_plan)
+    assert isinstance(ok, bool)
+    assert isinstance(errors, list)
+
+
+def test_validate_decision_with_tp_targets():
+    """Test validation of decision with TP targets."""
+    decision = {
+        "intent": "LONG",
+        "reject_reasons": [],
+        "entry": 50000.0,
+        "sl": 49100.0,
+        "tp": 51500.0,
+        "rr": 1.67,
+        "tp_targets": [
+            {"price": 51000.0, "rr": 1.11, "qty_frac": 0.4},
+            {"price": 51500.0, "rr": 1.67, "qty_frac": 0.6}
+        ],
+        "move_sl_to_be_after_tp1": True,
+        "timestamp": 1234567890
+    }
+    ok, errors = validate_decision(decision)
+    assert isinstance(ok, bool)
+    assert isinstance(errors, list)
+
+
 def test_validate_payload_missing_fields():
     """Test validation fails for missing required fields."""
     payload = {

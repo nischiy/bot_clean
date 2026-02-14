@@ -6,7 +6,7 @@ import numbers
 
 import pytest
 from app import run
-from app.strategy.decision_engine import make_decision
+from app.strategy.decision_engine import make_decision, normalize_strategy_block_reason
 
 try:
     import jsonschema  # noqa: F401
@@ -19,25 +19,44 @@ def _ensure_required_fields(payload):
     features = payload.setdefault("features_ltf", {})
     context = payload.setdefault("context_htf", {})
     close = features.get("close", 0.0) or 0.0
+    features.setdefault("open", close)
+    features.setdefault("open_prev", close)
     features.setdefault("high", close)
     features.setdefault("low", close)
+    features.setdefault("high_prev", close)
+    features.setdefault("low_prev", close)
+    features.setdefault("volume", 100.0)
+    features.setdefault("volume_prev", 100.0)
     features.setdefault("consec_close_above_donchian_20", 0.0)
     features.setdefault("consec_close_below_donchian_20", 0.0)
     features.setdefault("consec_above_ema50", 0.0)
     features.setdefault("consec_below_ema50", 0.0)
     features.setdefault("consec_above_ema50_prev", 0.0)
     features.setdefault("consec_below_ema50_prev", 0.0)
+    features.setdefault("donchian_high_k", features.get("donchian_high_20", close))
+    features.setdefault("donchian_low_k", features.get("donchian_low_20", close))
+    features.setdefault("bb_width", 200.0)
+    features.setdefault("bb_width_prev", 210.0)
     features.setdefault("close_max_n", close)
     features.setdefault("close_min_n", close)
     features.setdefault("time_exit_bars", 12)
+    features.setdefault("stability_n", 20)
+    features.setdefault("trend_candles_below_ema50", 20)
+    features.setdefault("trend_candles_above_ema50", 20)
+    features.setdefault("wick_ratio_count", 0)
+    features.setdefault("swing_high_m", features.get("high", close))
+    features.setdefault("swing_low_m", features.get("low", close))
 
     ema200 = context.get("ema200", 0.0) or 0.0
+    context.setdefault("ema_fast", ema200)
     context.setdefault("ema200_prev_n", ema200)
     context.setdefault("ema200_slope_norm", 0.05)
     context.setdefault("consec_above_ema200", 0.0)
     context.setdefault("consec_below_ema200", 0.0)
     context.setdefault("consec_higher_close", 0.0)
     context.setdefault("consec_lower_close", 0.0)
+    context.setdefault("rsi14", 50.0)
+    context.setdefault("rsi14_prev", 50.0)
     return payload
 
 
@@ -318,7 +337,10 @@ def test_hold_rejects_use_routed_regime(monkeypatch, valid_payload_long):
     assert all(not code.startswith("M:regime") for code in rejects)
 
 
-def test_strategy_ineligible_only_for_routed_regime(valid_payload_long):
+def test_no_strategy_ineligible_in_rejects_concrete_block_reason(valid_payload_long):
+    """When routed regime is PULLBACK but no strategy is eligible, reject_reasons must never
+    contain *:strategy_ineligible; strategy_block_reason must be a concrete normalized reason.
+    """
     payload = copy.deepcopy(valid_payload_long)
     payload["features_ltf"]["close"] = 1300.0
     payload["features_ltf"]["close_prev"] = 1200.0
@@ -333,8 +355,24 @@ def test_strategy_ineligible_only_for_routed_regime(valid_payload_long):
     decision = make_decision(payload)
     assert decision.get("signal", {}).get("regime_detected") == "PULLBACK"
     rejects = decision.get("reject_reasons") or []
-    assert "P:strategy_ineligible" in rejects
+    assert not any("strategy_ineligible" in str(c) for c in rejects), "blockers must never contain strategy_ineligible"
     assert all(not code.startswith("M:strategy_ineligible") for code in rejects)
+    signal = decision.get("signal", {})
+    assert signal.get("selected_strategy") == "NONE"
+    block_reason = signal.get("strategy_block_reason")
+    assert block_reason is not None and block_reason != "strategy_ineligible"
+    assert block_reason in (
+        "not_mapped_to_regime",
+        "gated_by_reclaim",
+        "gated_by_stability",
+        "gated_by_confirm",
+        "gated_by_volume",
+        "gated_by_trend",
+        "gated_by_conditions",
+        "gated_by_pullback_conditions",
+        "gated_by_spread",
+        "gated_by_unknown",
+    )
 
 
 def test_regime_mismatch_emits_m_regime(monkeypatch, valid_payload_long):
@@ -535,6 +573,8 @@ def test_range_long_trade(valid_payload_long):
     payload["price_snapshot"]["ask"] = 91.1
     payload["features_ltf"]["close_prev"] = 95.0
     payload["features_ltf"]["close"] = 91.0
+    payload["features_ltf"]["high"] = 96.0
+    payload["features_ltf"]["low"] = 86.0
     payload["features_ltf"]["donchian_low_20"] = 90.0
     payload["features_ltf"]["donchian_high_20"] = 150.0
     payload["features_ltf"]["atr14"] = 10.0
@@ -561,8 +601,9 @@ def test_breakout_long_trade(valid_payload_long):
     payload["context_htf"]["close"] = 1010.0
     payload["context_htf"]["atr14"] = 100.0
     payload["features_ltf"]["close"] = 120.0
+    payload["features_ltf"]["close_prev"] = 118.0
     payload["features_ltf"]["high"] = 125.0
-    payload["features_ltf"]["low"] = 108.0
+    payload["features_ltf"]["low"] = 115.0
     payload["features_ltf"]["donchian_high_20"] = 110.0
     payload["features_ltf"]["donchian_low_20"] = 90.0
     payload["features_ltf"]["donchian_low_20"] = 90.0
@@ -588,6 +629,8 @@ def test_strategy_selection_priority(monkeypatch, valid_payload_long):
     payload["context_htf"]["atr14"] = 100.0
     payload["features_ltf"]["close_prev"] = 90.0
     payload["features_ltf"]["close"] = 110.0
+    payload["features_ltf"]["high"] = 112.0
+    payload["features_ltf"]["low"] = 108.0
     payload["features_ltf"]["ema50"] = 100.0
     payload["features_ltf"]["atr14"] = 10.0
     payload["features_ltf"]["atr14_sma20"] = 7.0
@@ -742,7 +785,7 @@ def test_trend_continuation_slope_reject():
 def test_regime_detection_exclusive(valid_payload_long):
     decision = make_decision(valid_payload_long)
     regime = decision.get("signal", {}).get("regime_detected")
-    assert regime in {"COMPRESSION", "BREAKOUT_EXPANSION", "TREND_CONTINUATION", "PULLBACK", "RANGE"}
+    assert regime in {"COMPRESSION", "BREAKOUT_EXPANSION", "SQUEEZE_BREAK", "TREND_ACCEL", "TREND_CONTINUATION", "PULLBACK", "RANGE", "EVENT"}
 
 
 def test_compression_holds(valid_payload_long):
@@ -751,7 +794,10 @@ def test_compression_holds(valid_payload_long):
     payload["features_ltf"]["atr14"] = 10.0
     payload["features_ltf"]["donchian_high_20"] = 110.0
     payload["features_ltf"]["donchian_low_20"] = 95.0
+    payload["features_ltf"]["close_prev"] = 100.0
     payload["features_ltf"]["close"] = 100.0
+    payload["features_ltf"]["high"] = 102.0
+    payload["features_ltf"]["low"] = 98.0
     payload["features_ltf"]["volume_ratio"] = 0.9
     payload["features_ltf"]["candle_body_ratio"] = 0.4
 
@@ -768,14 +814,20 @@ def test_pullback_vs_continuation_dist50_threshold(valid_payload_long):
     payload["features_ltf"]["ema50"] = 100.0
     payload["features_ltf"]["donchian_low_20"] = 95.0
     payload["features_ltf"]["donchian_high_20"] = 120.0
+    payload["features_ltf"]["close_prev"] = 111.0
     payload["features_ltf"]["close"] = 112.0
+    payload["features_ltf"]["high"] = 114.0
+    payload["features_ltf"]["low"] = 108.0
     payload["features_ltf"]["volume_ratio"] = 1.1
     payload["features_ltf"]["candle_body_ratio"] = 0.6
 
     decision = make_decision(payload)
     assert decision.get("signal", {}).get("regime_detected") == "PULLBACK"
 
+    payload["features_ltf"]["close_prev"] = 96.0
     payload["features_ltf"]["close"] = 94.0
+    payload["features_ltf"]["high"] = 96.0
+    payload["features_ltf"]["low"] = 90.0
     decision = make_decision(payload)
     assert decision.get("signal", {}).get("regime_detected") == "TREND_CONTINUATION"
 
@@ -861,6 +913,16 @@ def test_pullback_reentry_passes(valid_payload_long):
     payload["features_ltf"]["atr14"] = 10.0
     payload["features_ltf"]["close_prev"] = 90.0
     payload["features_ltf"]["close"] = 112.0
+    payload["features_ltf"]["high"] = 114.0
+    payload["features_ltf"]["low"] = 108.0
+    payload["features_ltf"]["high"] = 114.0
+    payload["features_ltf"]["low"] = 108.0
+    payload["features_ltf"]["high"] = 114.0
+    payload["features_ltf"]["low"] = 108.0
+    payload["features_ltf"]["high"] = 114.0
+    payload["features_ltf"]["low"] = 108.0
+    payload["features_ltf"]["high"] = 114.0
+    payload["features_ltf"]["low"] = 108.0
     payload["features_ltf"]["donchian_high_20"] = 130.0
     payload["features_ltf"]["donchian_low_20"] = 80.0
     payload["features_ltf"]["consec_close_above_donchian_20"] = 0
@@ -880,6 +942,8 @@ def test_pullback_reentry_fake_reclaim_blocks(valid_payload_long):
     payload["features_ltf"]["atr14"] = 10.0
     payload["features_ltf"]["close_prev"] = 90.0
     payload["features_ltf"]["close"] = 112.0
+    payload["features_ltf"]["high"] = 114.0
+    payload["features_ltf"]["low"] = 108.0
     payload["features_ltf"]["donchian_high_20"] = 130.0
     payload["features_ltf"]["donchian_low_20"] = 80.0
     payload["features_ltf"]["consec_close_above_donchian_20"] = 0
@@ -901,6 +965,8 @@ def test_adaptive_rr_min_rr_blocks_range(valid_payload_long):
     payload["context_htf"]["atr14"] = 200.0
     payload["features_ltf"]["close"] = 91.0
     payload["features_ltf"]["close_prev"] = 95.0
+    payload["features_ltf"]["high"] = 96.0
+    payload["features_ltf"]["low"] = 86.0
     payload["features_ltf"]["donchian_low_20"] = 90.0
     payload["features_ltf"]["donchian_high_20"] = 150.0
     payload["features_ltf"]["atr14"] = 10.0
@@ -913,6 +979,7 @@ def test_adaptive_rr_min_rr_blocks_range(valid_payload_long):
 def test_adaptive_rr_math_breakout(valid_payload_long):
     payload = copy.deepcopy(valid_payload_long)
     payload["features_ltf"]["close"] = 120.0
+    payload["features_ltf"]["close_prev"] = 118.0
     payload["features_ltf"]["high"] = 125.0
     payload["features_ltf"]["low"] = 118.0
     payload["features_ltf"]["donchian_high_20"] = 110.0
@@ -964,3 +1031,20 @@ def test_strategy_priority_breakout_over_pullback(valid_payload_long):
     decision = make_decision(payload)
     assert decision.get("signal", {}).get("pullback_reentry_long_ok") is True
     assert decision.get("signal", {}).get("selected_strategy") == "BREAKOUT_EXPANSION"
+
+
+def test_normalize_strategy_block_reason_edge_cases():
+    """When first_reject_code is None or empty, strategy_block_reason must be gated_by_unknown (not strategy_ineligible)."""
+    assert normalize_strategy_block_reason(None) == "gated_by_unknown"
+    assert normalize_strategy_block_reason("") == "gated_by_unknown"
+    assert normalize_strategy_block_reason("   ") == "gated_by_unknown"
+    assert normalize_strategy_block_reason("no_colon") == "gated_by_unknown"
+    assert normalize_strategy_block_reason("P:reclaim") == "gated_by_reclaim"
+    assert normalize_strategy_block_reason("P:stability_block") == "gated_by_stability"
+    assert normalize_strategy_block_reason("C:trend") == "gated_by_trend"
+    # Never return generic strategy_ineligible
+    for code in (None, "", "P:reclaim", "M:regime"):
+        result = normalize_strategy_block_reason(code)
+        assert result != "strategy_ineligible"
+        assert result is not None
+        assert len(result) > 0

@@ -3,11 +3,18 @@
 ## Authority Hierarchy
 
 **Critical components** (required at runtime):
-- `app.run.TraderApp`
-- `app.bootstrap.MarketDataAdapter`
-- `app.services.execution_service.ExecutionService`
+- `app.run.TraderApp` - main runtime loop and orchestration
+- `app.bootstrap.compose_trader_app` - service composition and wiring
+- `app.bootstrap.MarketDataAdapter` - market data access (backed by `app.services.market_data`)
+- `app.data.market_data_validator.validate_market_data` - market data validation (fail-closed)
+- `app.data.payload_builder.build_payload` - payload construction
+- `app.strategy.decision_engine.make_decision` - decision making (intent only)
+- `app.risk.risk_manager.create_trade_plan` - trade plan creation (final authority)
+- `app.services.execution_service.ExecutionService` - order execution (idempotent)
+- `app.state.state_manager` - state persistence (for restart safety)
 
-**Optional components**: none
+**Optional components**: 
+- `app.core.trade_ledger` - append-only event logging (if `LEDGER_ENABLED=1`)
 
 ## `main.py`
 - Responsibility: entrypoint that loads config and composes the trading app, then starts it.
@@ -18,6 +25,7 @@
 - Filesystem access: no.
 - Environment access: indirect via config loader.
 - Import-time side effects: none.
+- **Note:** `get_config()` is called but result may not be passed to `compose_trader_app()`; bootstrap will read from environment if needed.
 
 ## `app/`
 

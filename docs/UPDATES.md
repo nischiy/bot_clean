@@ -4,6 +4,12 @@ This document summarizes the latest production-hardening updates.
 
 ## New Capabilities
 
+### 2026-01-27 Regime + Stability Upgrade
+- Added stability scoring with hard/soft gates and continuation confirmation for soft stability.
+- Added HTF anti-reversal filter, pending entry confirmation, and optional EV gate (default off).
+- Expanded regimes with TREND_ACCEL, SQUEEZE_BREAK, and EVENT cooldown blocking.
+- Decision logging now includes stability, confirmation, anti-reversal, pending, and event fields.
+
 ### Regime-Based Multi-Strategy (BTCUSDT 5m)
 - **Strategies:** CONTINUATION, BREAKOUT_EXPANSION, PULLBACK_REENTRY, RANGE_MEANREV
 - **Trend stability gate:** HTF EMA200 slope norm + persistence on EMA200 side
@@ -48,6 +54,17 @@ This document summarizes the latest production-hardening updates.
 - **Env:** `LIVE_READONLY=1`
 - **Behavior:** full pipeline with real data; **mutations blocked**
 - **Hard guard:** REST placement functions raise even if SAFE_RUN/DRY_RUN_ONLY are off
+
+### Partial Position Closure (TP1/TP2)
+- **Module:** `app.risk.risk_manager`, `app.strategy.decision_engine`, `app.services.execution_service`
+- **Behavior:** Splits position into TP1 (40% default) and TP2 (60% default) when `regime_exit_behavior` is `partial_fixed` or `trailing` and `rr_target >= 2.0`
+- **TP1:** 60% of target RR, quantity = `TP1_FRACTION` (default 0.4 = 40% of position)
+- **TP2:** 100% of target RR, quantity = `1 - TP1_FRACTION` (default 0.6 = 60% of position)
+- **Regimes:**
+  - `trailing` (BREAKOUT_EXPANSION, TREND_ACCEL, SQUEEZE_BREAK): TP1 + trailing SL after TP1 fill (UPDATE_SLTP)
+  - `partial_fixed` (CONTINUATION, PULLBACK_REENTRY): TP1 + TP2, fixed SL
+- **UPDATE_SLTP:** Moves SL to break-even (entry ± fees) after TP1 fills for trailing regimes
+- **Configuration:** `TP1_FRACTION` (default: 0.4)
 
 ### Deterministic Replay
 ### Funds-Base Risk Sizing

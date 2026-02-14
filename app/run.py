@@ -78,6 +78,17 @@ class TraderApp:
             get_config()
         except Exception as e:
             raise RuntimeError(f"config_validation_failed: {e}") from e
+        
+        # Initialize config fingerprint for governance
+        from core.config.fingerprint import initialize_config_fingerprint, get_config_fingerprint
+        config_fp = initialize_config_fingerprint()
+        fp_info = get_config_fingerprint()
+        _log_structured(self.log, "config_fingerprint_initialized", {
+            "config_hash": config_fp,
+            "config_keys_count": fp_info["config_keys_count"],
+        })
+        self.log.info("Config fingerprint: %s (%d keys)", config_fp[:16] + "...", fp_info["config_keys_count"])
+        
         if oneshot is None:
             oneshot = (
                 os.environ.get("APP_RUN_ONESHOT", "0") == "1"
@@ -93,6 +104,7 @@ class TraderApp:
             "file_handler": self._log_setup.get("file_handler"),
             "pytest_env": self._log_setup.get("pytest_env"),
             "oneshot": oneshot,
+            "config_hash": config_fp,
         })
         if runtime_settings.safe_run:
             self.log.info("SAFE_RUN active: execution is blocked (paper mirror).")
@@ -247,9 +259,26 @@ def _run_once_contracts(app: "TraderApp") -> None:
         load_or_initialize_daily_state,
         save_daily_state,
         save_position_state,
+        load_position_state,
+        load_decision_state,
+        save_decision_state,
         record_trade_attempt,
     )
     from app.services.execution_service import ExecutionService
+    from core.config.fingerprint import verify_config_unchanged
+    from core.health_counters import get_health_counters
+    from core.invariants import enforce_invariants
+    
+    # Verify config fingerprint unchanged (HARD STOP if changed)
+    config_ok, config_error = verify_config_unchanged()
+    if not config_ok:
+        get_health_counters().increment("config_changes_detected")
+        kill("config_changed", {"error": config_error})
+        app.log.error("CONFIG CHANGED DURING RUNTIME: %s — trading HARD STOPPED", config_error)
+        raise RuntimeError(f"config_changed_during_runtime: {config_error}")
+    
+    # Increment candles processed counter
+    get_health_counters().increment("candles_processed")
 
     now_ts = int(time.time())
     interval = app.interval or settings.get_str("INTERVAL", "5m")
@@ -260,6 +289,17 @@ def _run_once_contracts(app: "TraderApp") -> None:
     latest_closed_ts: Optional[int] = None
 
     position_snapshot = _get_position_snapshot(app.symbol)
+    # Preserve tracking fields (original_qty, tp1_qty) if they exist
+    existing_state = load_position_state(app.symbol)
+    if existing_state:
+        if "original_qty" in existing_state:
+            position_snapshot["original_qty"] = existing_state["original_qty"]
+        if "tp1_qty" in existing_state:
+            position_snapshot["tp1_qty"] = existing_state["tp1_qty"]
+        # Clear tracking fields if position is closed
+        if position_snapshot.get("qty", 0.0) == 0.0:
+            position_snapshot.pop("original_qty", None)
+            position_snapshot.pop("tp1_qty", None)
     save_position_state(app.symbol, position_snapshot)
 
     exe = ExecutionService(logger=app.log)
@@ -297,7 +337,17 @@ def _run_once_contracts(app: "TraderApp") -> None:
         require_tp=require_tp,
     )
     if not ok_reconcile:
+        # HARD STOP: Any reconciliation failure must stop trading immediately
         skip_reason = "exits_missing" if any("position_without_" in err for err in errors) else "reconcile_failed"
+        # Log structured kill-switch activation with reconciliation errors
+        _log_structured(app.log, "kill_switch_triggered", {
+            "timestamp": now_ts,
+            "reason": "exit_reconcile_failed",
+            "errors": errors,
+            "position_state": position_snapshot,
+            "exchange_positions_count": len(exchange_positions),
+            "open_orders_count": len(open_orders) if open_orders else 0,
+        })
         kill("exit_reconcile_failed", {"symbol": app.symbol, "errors": errors})
         append_event(
             event_type="exit_reconcile_failed",
@@ -327,6 +377,23 @@ def _run_once_contracts(app: "TraderApp") -> None:
 
     if is_killed():
         app.log.info("contracts: kill-switch active — trading halted")
+        # Increment kill-switch counter
+        get_health_counters().increment("kill_switch_activations")
+        # Log structured kill-switch activation with state snapshot
+        kill_reason = ""
+        try:
+            from core.risk_guard import _flag_file
+            kill_flag_path = _flag_file()
+            if kill_flag_path.exists():
+                kill_reason = kill_flag_path.read_text(encoding="utf-8").strip()
+        except Exception:
+            kill_reason = "kill_switch_engaged"
+        _log_structured(app.log, "kill_switch_active", {
+            "timestamp_closed": latest_closed_ts,
+            "reason": kill_reason,
+            "position_state": position_snapshot,
+            "daily_state": {},
+        })
         _emit_tick_summary(
             app,
             now_ts=now_ts,
@@ -338,6 +405,14 @@ def _run_once_contracts(app: "TraderApp") -> None:
             killed_flag=is_killed(),
         )
         return
+    
+    # Note: TP1 fill detection and UPDATE_SLTP generation is handled in the decision engine
+    # via the move_sl_to_be_after_tp1 flag. Full implementation requires:
+    # 1. Tracking original position qty and TP1 qty when trade executes
+    # 2. Comparing current position qty with expected qty after TP1 fill
+    # 3. Generating UPDATE_SLTP decision if TP1 filled and TP2 still open
+    # This is a placeholder - the decision engine will set move_sl_to_be_after_tp1
+    # based on regime exit behavior, and the runtime will handle UPDATE_SLTP execution
     df_ltf = None
     df_htf = None
     if getattr(app, "md", None) and hasattr(app.md, "get_klines"):
@@ -460,8 +535,50 @@ def _run_once_contracts(app: "TraderApp") -> None:
 
     daily_state = load_or_initialize_daily_state(payload.get("account_state", {}).get("equity", 0.0))
 
-    decision = make_decision(payload, daily_state)
+    decision_state = load_decision_state(app.symbol)
+    decision = make_decision(payload, daily_state, decision_state)
     decision_hash = hash_json(decision)
+    
+    # Enforce invariants: decision without valid payload → HOLD
+    try:
+        enforce_invariants(decision=decision, payload=payload)
+    except Exception as e:
+        get_health_counters().increment("invariant_violations")
+        app.log.error("Invariant violation: %s", e)
+        # Log to validation file if validation mode is enabled
+        try:
+            from core.validation_logger import log_invariant_violation
+            error_code = getattr(e, "error_code", "UNKNOWN")
+            details = getattr(e, "details", {})
+            context_snapshot = {
+                "timestamp_closed": latest_closed_ts,
+                "symbol": app.symbol,
+                "interval": interval,
+                "payload_hash": payload_hash,
+                "decision_hash": decision_hash,
+                "payload": payload,
+                "decision": decision,
+                "daily_state": daily_state,
+                "position_snapshot": position_snapshot,
+            }
+            log_invariant_violation(
+                error_code=error_code,
+                message=str(e),
+                details=details,
+                context_snapshot=context_snapshot,
+            )
+        except Exception:
+            # Fail silently - validation logging should never affect trading
+            pass
+        # Fail-closed: set decision to HOLD
+        decision["intent"] = "HOLD"
+        decision["reject_reasons"] = decision.get("reject_reasons", []) + [f"invariant_violation: {str(e)}"]
+    
+    # Increment decision counter
+    get_health_counters().increment("decisions_made")
+    state_update = decision.get("state_update")
+    if isinstance(state_update, dict):
+        save_decision_state(app.symbol, state_update)
     explain_fields = _build_explain_fields(payload, decision)
 
     exchange_positions = []
@@ -480,6 +597,26 @@ def _run_once_contracts(app: "TraderApp") -> None:
     decision_rejects = list(decision.get("reject_reasons") or [])
     all_rejects = list(decision_rejects)
     decision_invalid = any("jsonschema" in str(r) or "schema" in str(r) for r in decision_rejects)
+    
+    # Build explainability fields for blockers
+    signal = decision.get("signal") or {}
+    explain_pullback = _build_explain_pullback(signal, decision_rejects)
+    explain_range = _build_explain_range(signal, decision_rejects)
+    explain_continuation = _build_explain_continuation(signal, decision_rejects)
+    explain_breakout = _build_explain_breakout(signal, decision_rejects)
+    # Build anti-reversal explain when evaluated (blocked or not blocked, but not when None/not evaluated)
+    explain_anti_reversal = _build_explain_anti_reversal(signal)
+    
+    if explain_pullback:
+        explain_fields["explain_pullback"] = explain_pullback
+    if explain_range:
+        explain_fields["explain_range"] = explain_range
+    if explain_continuation:
+        explain_fields["explain_continuation"] = explain_continuation
+    if explain_breakout:
+        explain_fields["explain_breakout"] = explain_breakout
+    if explain_anti_reversal:
+        explain_fields["explain_anti_reversal"] = explain_anti_reversal
 
     append_event(
         event_type="decision_created",
@@ -505,8 +642,92 @@ def _run_once_contracts(app: "TraderApp") -> None:
         time_exit_signal=time_exit_signal,
     )
 
-    if intent not in ("LONG", "SHORT", "CLOSE"):
+    # Check if decision has UPDATE_SLTP intent (from move_sl_to_be_after_tp1)
+    # Detect TP1 fill by comparing current position qty vs original qty
+    if decision.get("move_sl_to_be_after_tp1") and has_open_position:
+        original_qty = position_snapshot.get("original_qty")
+        tp1_qty = position_snapshot.get("tp1_qty")
+        current_qty = float(position_snapshot.get("qty", 0.0) or 0.0)
+        exchange_limits = payload.get("exchange_limits", {})
+        step_size = exchange_limits.get("step_size", 0.0)
+        
+        # Detect TP1 fill: current_qty should be approximately (original_qty - tp1_qty)
+        # Add tolerance for step_size rounding (allow up to 2*step_size difference)
+        tp1_filled = False
+        if original_qty is not None and tp1_qty is not None and step_size > 0:
+            expected_qty_after_tp1 = float(original_qty) - float(tp1_qty)
+            tolerance = max(step_size * 2.0, step_size * 0.01)  # At least 2*step_size or 1% of step_size
+            qty_diff = abs(current_qty - expected_qty_after_tp1)
+            if qty_diff <= tolerance:
+                tp1_filled = True
+        elif original_qty is not None and tp1_qty is not None:
+            # Fallback if step_size not available: use 1% tolerance
+            expected_qty_after_tp1 = float(original_qty) - float(tp1_qty)
+            tolerance = abs(expected_qty_after_tp1) * 0.01  # 1% tolerance
+            qty_diff = abs(current_qty - expected_qty_after_tp1)
+            if qty_diff <= tolerance:
+                tp1_filled = True
+        
+        # Only trigger UPDATE_SLTP if TP1 is confirmed filled and TP2 still open
+        if tp1_filled:
+            tp_orders_open = [o for o in open_orders if str(o.get("type", "")).upper() == "TAKE_PROFIT_MARKET"]
+            if len(tp_orders_open) > 0:  # TP2 still open
+                # Generate UPDATE_SLTP decision
+                pos_entry = float(position_snapshot.get("entry", 0.0) or 0.0)
+                if pos_entry > 0:
+                    # Set SL to break-even (entry price, accounting for fees)
+                    fees = payload.get("fees", {})
+                    taker_fee = fees.get("taker", 0.0004)
+                    pos_side = position_snapshot.get("side")
+                    if pos_side == "LONG":
+                        be_sl = pos_entry * (1 + taker_fee)  # Slightly above entry for LONG
+                    else:
+                        be_sl = pos_entry * (1 - taker_fee)  # Slightly below entry for SHORT
+                    
+                    decision["intent"] = "UPDATE_SLTP"
+                    decision["sl"] = be_sl
+                    decision["entry"] = pos_entry
+                    intent = "UPDATE_SLTP"  # Update intent variable
+                    
+                    app.log.info(
+                        "contracts: TP1 fill detected: original_qty=%.6f tp1_qty=%.6f current_qty=%.6f expected=%.6f",
+                        float(original_qty) if original_qty is not None else 0.0,
+                        float(tp1_qty) if tp1_qty is not None else 0.0,
+                        current_qty,
+                        expected_qty_after_tp1 if original_qty is not None and tp1_qty is not None else 0.0
+                    )
+    
+    if intent not in ("LONG", "SHORT", "CLOSE", "UPDATE_SLTP"):
         app.log.info("contracts: no trade signal")
+        # Increment rejection counter
+        get_health_counters().increment("decisions_rejected")
+        # Blockers must never contain *:strategy_ineligible; use concrete strategy_block_reason in logs
+        reject_blockers = _strip_strategy_ineligible_from_blockers(decision_rejects)
+        main_blocker = reject_blockers[0] if reject_blockers else "no_signal"
+        blocker_categories = list(set([r.split(":")[0] if ":" in r else "unknown" for r in reject_blockers]))
+        reject_log = {
+            "timestamp_closed": latest_closed_ts,
+            "decision": intent,
+            "main_blocker": main_blocker,
+            "blocker_categories": blocker_categories,
+            "blockers": reject_blockers,
+            "reject_count": len(reject_blockers),
+            "selected_strategy": decision.get("signal", {}).get("selected_strategy", "NONE"),
+            "regime_detected": decision.get("signal", {}).get("regime_detected", "UNKNOWN"),
+            "strategy_block_reason": decision.get("signal", {}).get("strategy_block_reason"),
+        }
+        # Add explain fields if present
+        if explain_pullback:
+            reject_log["explain_pullback"] = explain_pullback
+        if explain_range:
+            reject_log["explain_range"] = explain_range
+        if explain_continuation:
+            reject_log["explain_continuation"] = explain_continuation
+        if explain_breakout:
+            reject_log["explain_breakout"] = explain_breakout
+        if explain_anti_reversal:
+            reject_log["explain_anti_reversal"] = explain_anti_reversal
+        _log_structured(app.log, "decision_reject", reject_log)
         _log_structured(app.log, "decision_candle", decision_log)
         _log_decision_clean(app.log, decision_log)
         skip_reason = "no_trade_signal"
@@ -531,6 +752,47 @@ def _run_once_contracts(app: "TraderApp") -> None:
     decision_log["decision"] = "TRADE" if trade_plan is not None else "HOLD"
     decision_log["reject_reasons"] = all_rejects
     decision_log["cooldown_active"] = cooldown_active
+    
+    # Enforce invariants: execution attempted without SL → HARD STOP
+    if trade_plan is not None and intent in ("LONG", "SHORT"):
+        try:
+            enforce_invariants(trade_plan=trade_plan, intent=intent)
+        except Exception as e:
+            get_health_counters().increment("invariant_violations")
+            app.log.error("CRITICAL: Invariant violation - execution without SL: %s", e)
+            # Log to validation file if validation mode is enabled
+            try:
+                from core.validation_logger import log_invariant_violation
+                from app.core.trade_ledger import hash_json
+                error_code = getattr(e, "error_code", "UNKNOWN")
+                details = getattr(e, "details", {})
+                trade_plan_hash_val = hash_json(trade_plan) if trade_plan is not None else None
+                context_snapshot = {
+                    "timestamp_closed": latest_closed_ts,
+                    "symbol": app.symbol,
+                    "interval": interval,
+                    "payload_hash": payload_hash,
+                    "decision_hash": decision_hash,
+                    "trade_plan_hash": trade_plan_hash_val,
+                    "intent": intent,
+                    "payload": payload,
+                    "decision": decision,
+                    "trade_plan": trade_plan,
+                    "daily_state": daily_state,
+                    "position_snapshot": position_snapshot,
+                    "rejections": rejections,
+                }
+                log_invariant_violation(
+                    error_code=error_code,
+                    message=str(e),
+                    details=details,
+                    context_snapshot=context_snapshot,
+                )
+            except Exception:
+                # Fail silently - validation logging should never affect trading
+                pass
+            kill("invariant_violation", {"error": str(e)})
+            raise RuntimeError(f"invariant_violation_execution_no_sl: {e}") from e
     if trade_plan is not None and decision.get("signal", {}).get("selected_strategy") == "MEANREV_EXTREME":
         daily_state["extreme_snapback_ts"] = int(latest_closed_ts)
         if daily_state.get("date"):
@@ -552,6 +814,67 @@ def _run_once_contracts(app: "TraderApp") -> None:
 
     if trade_plan is None:
         app.log.info("contracts: trade_plan blocked: %s", rejections)
+        # Increment risk rejection counter
+        get_health_counters().increment("risk_rejections")
+        # Log structured risk rejection
+        if intent in ("LONG", "SHORT", "CLOSE", "UPDATE_SLTP"):
+            main_blocker = rejections[0] if rejections else "unknown"
+            blocker_categories = list(set([r.split(":")[0] if ":" in r else "unknown" for r in rejections]))
+            risk_reject_log = {
+                "timestamp_closed": latest_closed_ts,
+                "intent": intent,
+                "main_blocker": main_blocker,
+                "blocker_categories": blocker_categories,
+                "blockers": rejections,
+                "reject_count": len(rejections),
+            }
+            # Add explain fields if present (risk rejections may still have strategy explain fields)
+            if explain_pullback:
+                risk_reject_log["explain_pullback"] = explain_pullback
+            if explain_range:
+                risk_reject_log["explain_range"] = explain_range
+            if explain_continuation:
+                risk_reject_log["explain_continuation"] = explain_continuation
+            if explain_breakout:
+                risk_reject_log["explain_breakout"] = explain_breakout
+            if explain_anti_reversal:
+                risk_reject_log["explain_anti_reversal"] = explain_anti_reversal
+            _log_structured(app.log, "risk_reject", risk_reject_log)
+        
+        # Enforce invariants: trade_plan without passed risk checks → REJECT
+        try:
+            enforce_invariants(trade_plan=trade_plan, rejections=rejections)
+        except Exception as e:
+            get_health_counters().increment("invariant_violations")
+            app.log.error("Invariant violation: %s", e)
+            # Log to validation file if validation mode is enabled
+            try:
+                from core.validation_logger import log_invariant_violation
+                error_code = getattr(e, "error_code", "UNKNOWN")
+                details = getattr(e, "details", {})
+                context_snapshot = {
+                    "timestamp_closed": latest_closed_ts,
+                    "symbol": app.symbol,
+                    "interval": interval,
+                    "payload_hash": payload_hash,
+                    "decision_hash": decision_hash,
+                    "intent": intent,
+                    "payload": payload,
+                    "decision": decision,
+                    "trade_plan": trade_plan,
+                    "daily_state": daily_state,
+                    "position_snapshot": position_snapshot,
+                    "rejections": rejections,
+                }
+                log_invariant_violation(
+                    error_code=error_code,
+                    message=str(e),
+                    details=details,
+                    context_snapshot=context_snapshot,
+                )
+            except Exception:
+                # Fail silently - validation logging should never affect trading
+                pass
         skip_reason = "risk_reject" if intent in ("LONG", "SHORT", "CLOSE") else ("decision_invalid" if decision_invalid else "no_trade_signal")
         _emit_tick_summary(
             app,
@@ -625,6 +948,18 @@ def _run_once_contracts(app: "TraderApp") -> None:
         )
         res = exe.execute_trade_plan(trade_plan)
         app.log.info("contracts: execution result: %s", res)
+        
+        # Save original position qty and TP1 qty for TP1 fill detection
+        if res.get("executed") and intent in ("LONG", "SHORT"):
+            original_qty = res.get("original_qty")
+            tp1_qty = res.get("tp1_qty")
+            if original_qty is not None:
+                # Update position state with tracking fields
+                current_pos = position_snapshot.copy()
+                current_pos["original_qty"] = float(original_qty)
+                if tp1_qty is not None:
+                    current_pos["tp1_qty"] = float(tp1_qty)
+                save_position_state(app.symbol, current_pos)
     else:
         app.log.info("contracts: trade disabled — execution skipped")
         _log_structured(app.log, "execution_skipped", {
@@ -633,6 +968,10 @@ def _run_once_contracts(app: "TraderApp") -> None:
             "note": "trade_disabled",
         })
 
+    # Emit periodic health summary
+    from core.health_counters import emit_health_summary
+    emit_health_summary(app.log, now_ts)
+    
     _emit_tick_summary(
         app,
         now_ts=now_ts,
@@ -740,8 +1079,52 @@ def _prioritize_blockers(blockers: List[str]) -> List[str]:
     return _uniq([*margin_blockers, *strategy_blockers, *other_blockers])
 
 
+def _router_debug_compact(router_debug: Optional[Dict[str, Any]]) -> Optional[str]:
+    """One-line summary of router state for decision_clean.
+    rej= is derived from first rejected strategy in strategies_for_regime order, not dict order.
+    """
+    if not router_debug:
+        return None
+    regime = router_debug.get("regime_detected") or "?"
+    for_regime = router_debug.get("strategies_for_regime") or []
+    enabled = router_debug.get("enabled_strategies") or []
+    rejected = router_debug.get("rejected_strategies") or {}
+    parts = [f"r={regime}", f"map={for_regime[:1] or []}", f"enabled={len(enabled)}"]
+    rej_str = "none"
+    for name in for_regime:
+        code = rejected.get(name)
+        if code is not None and str(code).strip() and str(code).strip().lower() != "unknown":
+            rej_str = f"{name}:{str(code)[:20]}"
+            break
+    parts.append(f"rej={rej_str}")
+    return " ".join(parts)
+
+
+def _reclaim_debug_compact(decision_log: Dict[str, Any]) -> Optional[str]:
+    """One-line reclaim summary for decision_clean."""
+    level = decision_log.get("reclaim_level_used")
+    tol = decision_log.get("effective_tolerance")
+    dist = decision_log.get("distance_to_reclaim")
+    if level is None and tol is None and dist is None:
+        return None
+    parts = []
+    if level is not None:
+        parts.append(f"level={level:.2f}" if isinstance(level, (int, float)) else f"level={level}")
+    if tol is not None and isinstance(tol, (int, float)):
+        parts.append(f"tol={tol:.4f}")
+    if dist is not None and isinstance(dist, (int, float)):
+        parts.append(f"dist_atr={dist:.3f}")
+    return " ".join(parts) if parts else None
+
+
+def _strip_strategy_ineligible_from_blockers(reject_reasons: List[str]) -> List[str]:
+    """Remove any *:strategy_ineligible from list so it never appears in blockers."""
+    return [c for c in reject_reasons if not (isinstance(c, str) and ":strategy_ineligible" in c)]
+
+
 def _log_decision_clean(logger: logging.Logger, decision_log: Dict[str, Any]) -> None:
-    blockers = _prioritize_blockers(list(decision_log.get("reject_reasons") or []))
+    raw_rejects = list(decision_log.get("reject_reasons") or [])
+    blockers = _prioritize_blockers(_strip_strategy_ineligible_from_blockers(raw_rejects))
     categories = []
     for code in blockers:
         if not isinstance(code, str) or ":" not in code:
@@ -749,12 +1132,29 @@ def _log_decision_clean(logger: logging.Logger, decision_log: Dict[str, Any]) ->
         prefix = code.split(":", 1)[0]
         if prefix and prefix not in categories:
             categories.append(prefix)
+    
+    # Build explain_main from explain fields if available
+    explain_main = _build_explain_main(
+        blockers,
+        decision_log.get("explain_pullback"),
+        decision_log.get("explain_range"),
+        decision_log.get("explain_anti_reversal"),
+    )
+    
+    gating_summary = blockers[0] if blockers else None
+    router_compact = _router_debug_compact(decision_log.get("router_debug"))
+    reclaim_compact = _reclaim_debug_compact(decision_log)
+    stability_mode_used = decision_log.get("stability_mode_used")
+    
     payload = {
         "regime_detected": decision_log.get("regime_detected"),
         "regime_used_for_routing": decision_log.get("regime_used_for_routing"),
         "selected_strategy": decision_log.get("selected_strategy"),
         "eligible_strategies": decision_log.get("eligible_strategies"),
+        "strategy_block_reason": decision_log.get("strategy_block_reason"),
         "decision": decision_log.get("decision"),
+        "stability_score": decision_log.get("stability_score"),
+        "stability_mode_used": stability_mode_used,
         "equity": decision_log.get("equity"),
         "funds_base": decision_log.get("funds_base"),
         "funds_source": decision_log.get("funds_source"),
@@ -763,9 +1163,17 @@ def _log_decision_clean(logger: logging.Logger, decision_log: Dict[str, Any]) ->
         "qty_after_rounding": decision_log.get("qty_after_rounding"),
         "required_margin": decision_log.get("required_margin"),
         "leverage_used": decision_log.get("leverage_used"),
+        "main_blocker": blockers[0] if blockers else None,
         "blockers": blockers[:6],
         "blocker_categories": categories[:6],
+        "gating_summary": gating_summary,
     }
+    if router_compact is not None:
+        payload["router_debug"] = {"compact": router_compact}
+    if reclaim_compact is not None:
+        payload["reclaim_debug"] = {"compact": reclaim_compact}
+    if explain_main:
+        payload["explain_main"] = explain_main
     _log_structured(logger, "decision_clean", payload)
 
 
@@ -845,6 +1253,622 @@ def _emit_tick_summary(
     )
 
 
+def _build_explain_pullback(signal: Dict[str, Any], blockers: List[str]) -> Optional[Dict[str, Any]]:
+    """
+    Build explain_pullback fields for PULLBACK strategy blockers.
+    Only returns data if regime is PULLBACK or blockers contain P: codes.
+    """
+    regime_detected = signal.get("regime_detected")
+    has_p_blockers = any(b.startswith("P:") for b in blockers)
+    
+    if regime_detected != "PULLBACK" and not has_p_blockers:
+        return None
+    
+    from core.config import settings
+    
+    dist50 = signal.get("dist50")
+    dist50_prev = signal.get("dist50_prev")
+    dist50_min = settings.get_float("PULLBACK_REENTRY_DIST50_MIN")
+    dist50_max = settings.get_tunable_float("PULLBACK_REENTRY_DIST50_MAX", "PULLBACK_REENTRY_DIST50_MAX_REAL")
+    dist50_max_used = dist50_max
+    
+    reclaim_long = signal.get("reclaim_long", False)
+    reclaim_short = signal.get("reclaim_short", False)
+    htf_trend = signal.get("trend")
+    close_ltf = signal.get("close_ltf")
+    ema50_ltf = signal.get("ema50_ltf")
+    
+    # Determine reclaim requirement
+    reclaim_required = "none"
+    if htf_trend == "up":
+        reclaim_required = "long"
+        reclaim_ok = reclaim_long if close_ltf is not None and ema50_ltf is not None and close_ltf > ema50_ltf else False
+    elif htf_trend == "down":
+        reclaim_required = "short"
+        reclaim_ok = reclaim_short if close_ltf is not None and ema50_ltf is not None and close_ltf < ema50_ltf else False
+    else:
+        reclaim_ok = False
+    
+    volume_ratio = signal.get("volume_ratio")
+    vol_min = settings.get_tunable_float("PULLBACK_REENTRY_VOL_MIN", "PULLBACK_REENTRY_VOL_MIN_REAL")
+    vol_min_used = vol_min
+    vol_ok = volume_ratio is not None and volume_ratio >= vol_min if volume_ratio is not None else None
+    
+    reclaim_tol_atr = 0.0
+    reclaim_tol_abs = 0.0
+    if settings.get_bool("REAL_MARKET_TUNING", False):
+        reclaim_tol_atr = settings.get_float("PULLBACK_RECLAIM_TOL_ATR", 0.10)
+        atr14 = signal.get("atr")
+        if atr14 is not None and atr14 > 0:
+            reclaim_tol_abs = reclaim_tol_atr * atr14
+    
+    stability_score = signal.get("stability_score")
+    stability_soft = settings.get_tunable_float("STABILITY_SOFT", "STABILITY_SOFT_REAL")
+    stability_hard = settings.get_tunable_float("STABILITY_HARD", "STABILITY_HARD_REAL")
+    stable_ok = stability_score is not None and stability_score >= stability_hard if stability_score is not None else None
+    stable_soft_ok = stability_score is not None and stability_soft <= stability_score < stability_hard if stability_score is not None else None
+    
+    # Build confirm explain fields if P:confirm blocker present or regime is PULLBACK
+    has_confirm_blocker = "P:confirm" in blockers
+    confirm_explain = None
+    if regime_detected == "PULLBACK" or has_confirm_blocker:
+        candle_body_ratio = signal.get("candle_body_ratio")
+        body_min = settings.get_float("PULLBACK_REENTRY_CONFIRM_BODY_MIN")
+        body_ok = candle_body_ratio is not None and candle_body_ratio >= body_min if candle_body_ratio is not None else None
+        
+        min_bars = settings.get_int("PULLBACK_REENTRY_MIN_BARS")
+        consec_above_ema50_prev = signal.get("consec_above_ema50_prev")
+        consec_below_ema50_prev = signal.get("consec_below_ema50_prev")
+        
+        # Determine bars_since_signal based on trend
+        bars_since_signal = None
+        if htf_trend == "up":
+            bars_since_signal = consec_below_ema50_prev
+        elif htf_trend == "down":
+            bars_since_signal = consec_above_ema50_prev
+        
+        bars_ok = bars_since_signal is not None and bars_since_signal >= min_bars if bars_since_signal is not None else None
+        
+        # Determine confirmation type and overall confirm_ok
+        close_prev = signal.get("close_prev_ltf")
+        confirm_ok = False
+        confirmation_type = "NONE"
+        
+        if close_prev is None or close_ltf is None:
+            confirmation_type = "MISSING_DATA"
+            confirm_ok = False
+        else:
+            # Check close direction confirmation
+            if htf_trend == "up":
+                close_dir_ok = close_ltf > close_prev
+            elif htf_trend == "down":
+                close_dir_ok = close_ltf < close_prev
+            else:
+                close_dir_ok = False
+            
+            if not close_dir_ok:
+                confirmation_type = "CLOSE_DIRECTION"
+                confirm_ok = False
+            elif body_ok is False:
+                confirmation_type = "BODY"
+                confirm_ok = False
+            elif bars_ok is False:
+                confirmation_type = "BARS"
+                confirm_ok = False
+            else:
+                confirmation_type = "OK"
+                confirm_ok = True
+        
+        confirm_explain = {
+            "body_ratio": candle_body_ratio,
+            "body_min": body_min,
+            "body_ok": body_ok,
+            "min_bars": min_bars,
+            "bars_since_signal": bars_since_signal,
+            "bars_ok": bars_ok,
+            "confirmation_type": confirmation_type,
+            "confirm_ok": confirm_ok,
+        }
+    
+    result = {
+        "dist50_prev": dist50_prev,
+        "dist50_curr": dist50,
+        "dist50_min": dist50_min,
+        "dist50_max": dist50_max,
+        "dist50_max_used": dist50_max_used,
+        "dist50_prev_ok": dist50_prev is not None and dist50_min <= dist50_prev <= dist50_max if dist50_prev is not None else None,
+        "dist50_curr_ok": dist50 is not None and dist50 <= dist50_max if dist50 is not None else None,
+        "reclaim_short": reclaim_short,
+        "reclaim_long": reclaim_long,
+        "reclaim_required": reclaim_required,
+        "reclaim_ok": reclaim_ok,
+        "reclaim_tol_atr": reclaim_tol_atr,
+        "reclaim_tol_abs": reclaim_tol_abs,
+        "volume_ratio": volume_ratio,
+        "vol_min": vol_min,
+        "vol_min_used": vol_min_used,
+        "vol_ok": vol_ok,
+        "stability_score": stability_score,
+        "stability_soft": stability_soft,
+        "stability_hard": stability_hard,
+        "stable_ok": stable_ok,
+        "stable_soft_ok": stable_soft_ok,
+    }
+    
+    if confirm_explain:
+        result["confirm"] = confirm_explain
+    
+    return result
+
+
+def _build_explain_range(signal: Dict[str, Any], blockers: List[str]) -> Optional[Dict[str, Any]]:
+    """
+    Build explain_range fields for RANGE mean-reversion strategy blockers.
+    Only returns data if regime is RANGE or blockers contain M: codes.
+    """
+    regime_detected = signal.get("regime_detected")
+    has_m_blockers = any(b.startswith("M:") for b in blockers)
+    
+    if regime_detected != "RANGE" and not has_m_blockers:
+        return None
+    
+    from core.config import settings
+    
+    htf_trend = signal.get("trend")
+    trend_strength = signal.get("trend_strength")
+    trend_strength_min = settings.get_float("TREND_STRENGTH_MIN")
+    # Mean-rev is allowed when: trend == "range" OR trend_strength < threshold
+    # Blocked when: trend != "range" AND trend_strength >= threshold
+    trend_ok = htf_trend == "range" or (trend_strength is not None and trend_strength < trend_strength_min)
+    trend_block_reason = None
+    if not trend_ok:
+        if htf_trend != "range":
+            trend_block_reason = f"trend={htf_trend}"
+        elif trend_strength is not None and trend_strength >= trend_strength_min:
+            trend_block_reason = f"trend_strength={trend_strength:.3f}>={trend_strength_min:.3f}"
+    
+    volume_ratio = signal.get("volume_ratio")
+    vol_max = settings.get_float("RANGE_MEANREV_VOL_MAX")
+    vol_ok = volume_ratio is not None and volume_ratio < vol_max if volume_ratio is not None else None
+    
+    rsi = signal.get("rsi14_ltf")
+    rsi_long_max = settings.get_float("RANGE_RSI_LONG_MAX")
+    rsi_short_min = settings.get_float("RANGE_RSI_SHORT_MIN")
+    rsi_long_ok = rsi is not None and rsi <= rsi_long_max if rsi is not None else None
+    rsi_short_ok = rsi is not None and rsi >= rsi_short_min if rsi is not None else None
+    
+    close_ltf = signal.get("close_ltf")
+    atr14 = signal.get("atr")
+    donchian_high_20 = signal.get("donchian_high_20")
+    donchian_low_20 = signal.get("donchian_low_20")
+    edge_atr_min = settings.get_float("RANGE_MEANREV_EDGE_ATR")
+    
+    # Compute edge_atr (distance from range edge)
+    edge_atr = None
+    edge_ok = None
+    if close_ltf is not None and atr14 is not None and atr14 > 0 and donchian_high_20 is not None and donchian_low_20 is not None:
+        # Distance from closest edge
+        dist_from_low = (close_ltf - donchian_low_20) / atr14 if donchian_low_20 > 0 else None
+        dist_from_high = (donchian_high_20 - close_ltf) / atr14 if donchian_high_20 > 0 else None
+        if dist_from_low is not None and dist_from_high is not None:
+            edge_atr = min(dist_from_low, dist_from_high)
+            edge_ok = edge_atr >= edge_atr_min
+        elif dist_from_low is not None:
+            edge_atr = dist_from_low
+            edge_ok = edge_atr >= edge_atr_min
+        elif dist_from_high is not None:
+            edge_atr = dist_from_high
+            edge_ok = edge_atr >= edge_atr_min
+    
+    wick_ratio = signal.get("wick_ratio")
+    wick_th = settings.get_float("ANTI_REV_WICK_TH")  # Reusing for range entries if applicable
+    wick_ok = wick_ratio is not None and wick_ratio < wick_th if wick_ratio is not None else None
+    
+    return {
+        "trend": htf_trend,
+        "trend_ok": trend_ok,
+        "trend_block_reason": trend_block_reason,
+        "volume_ratio": volume_ratio,
+        "vol_max": vol_max,
+        "vol_ok": vol_ok,
+        "rsi": rsi,
+        "rsi_long_max": rsi_long_max,
+        "rsi_short_min": rsi_short_min,
+        "rsi_long_ok": rsi_long_ok,
+        "rsi_short_ok": rsi_short_ok,
+        "edge_atr": edge_atr,
+        "edge_atr_min": edge_atr_min,
+        "edge_ok": edge_ok,
+        "wick_ratio": wick_ratio,
+        "wick_th": wick_th,
+        "wick_ok": wick_ok,
+    }
+
+
+def _build_explain_continuation(signal: Dict[str, Any], blockers: List[str]) -> Optional[Dict[str, Any]]:
+    """
+    Build explain_continuation fields for CONTINUATION strategy blockers.
+    Only returns data if regime is TREND_CONTINUATION or blockers contain C: codes.
+    """
+    regime_detected = signal.get("regime_detected")
+    has_c_blockers = any(b.startswith("C:") for b in blockers)
+    
+    if regime_detected != "TREND_CONTINUATION" and not has_c_blockers:
+        return None
+    
+    from core.config import settings
+    
+    cont_long_ok = signal.get("cont_long_ok", False)
+    cont_short_ok = signal.get("cont_short_ok", False)
+    cont_reject_codes = signal.get("cont_reject_codes", [])
+    
+    direction = signal.get("direction")
+    trend_stable_long = signal.get("trend_stable_long", False)
+    trend_stable_short = signal.get("trend_stable_short", False)
+    trend_strength = signal.get("trend_strength")
+    trend_strength_min = settings.get_float("TREND_STRENGTH_MIN")
+    
+    candle_body_ratio = signal.get("candle_body_ratio")
+    cont_body_min = settings.get_float("CONT_BODY_MIN", 0.50)
+    body_ok = candle_body_ratio is not None and candle_body_ratio >= cont_body_min if candle_body_ratio is not None else None
+    
+    volume_ratio = signal.get("volume_ratio")
+    cont_vol_min = settings.get_float("CONT_VOL_MIN", 1.0)
+    vol_ok = volume_ratio is not None and volume_ratio >= cont_vol_min if volume_ratio is not None else None
+    
+    atr_ratio = signal.get("atr_ratio")
+    cont_atr_ratio_min = settings.get_float("CONT_ATR_RATIO_MIN", 0.95)
+    atr_ratio_ok = atr_ratio is not None and atr_ratio >= cont_atr_ratio_min if atr_ratio is not None else None
+    
+    slope_atr = signal.get("slope_atr")
+    cont_slope_atr_min = settings.get_float("CONT_SLOPE_ATR_MIN")
+    cont_slope_atr_max = settings.get_float("CONT_SLOPE_ATR_MAX")
+    slope_ok = None
+    if slope_atr is not None:
+        if direction == "UP":
+            slope_ok = slope_atr >= cont_slope_atr_min
+        elif direction == "DOWN":
+            slope_ok = slope_atr <= cont_slope_atr_max
+    
+    k_overextension = signal.get("k_overextension")
+    cont_k_max = settings.get_float("CONT_K_MAX")
+    k_ok = k_overextension is not None and abs(k_overextension) <= cont_k_max if k_overextension is not None else None
+    
+    rsi14 = signal.get("rsi14_ltf")
+    cont_rsi_max_long = settings.get_float("CONT_RSI_MAX_LONG")
+    cont_rsi_min_short = settings.get_float("CONT_RSI_MIN_SHORT")
+    rsi_ok = None
+    if rsi14 is not None:
+        if direction == "UP":
+            rsi_ok = rsi14 <= cont_rsi_max_long
+        elif direction == "DOWN":
+            rsi_ok = rsi14 >= cont_rsi_min_short
+    
+    break_level = signal.get("break_level")
+    break_delta_atr = signal.get("break_delta_atr")
+    close_ltf = signal.get("close_ltf")
+    break_ok = None
+    if break_level is not None and close_ltf is not None:
+        if direction == "UP":
+            break_ok = close_ltf >= break_level
+        elif direction == "DOWN":
+            break_ok = close_ltf <= break_level
+    
+    stability_score = signal.get("stability_score")
+    stability_soft = settings.get_float("STABILITY_SOFT")
+    stability_hard = settings.get_float("STABILITY_HARD")
+    stable_ok = stability_score is not None and stability_score >= stability_hard if stability_score is not None else None
+    stable_soft_ok = stability_score is not None and stability_soft <= stability_score < stability_hard if stability_score is not None else None
+    
+    continuation_confirmation_type = signal.get("continuation_confirmation_type")
+    confirmation_ok = continuation_confirmation_type != "NONE"
+    
+    return {
+        "cont_long_ok": cont_long_ok,
+        "cont_short_ok": cont_short_ok,
+        "direction": direction,
+        "trend_stable_long": trend_stable_long,
+        "trend_stable_short": trend_stable_short,
+        "trend_strength": trend_strength,
+        "trend_strength_min": trend_strength_min,
+        "trend_ok": trend_strength is not None and trend_strength >= trend_strength_min if trend_strength is not None else None,
+        "candle_body_ratio": candle_body_ratio,
+        "cont_body_min": cont_body_min,
+        "body_ok": body_ok,
+        "volume_ratio": volume_ratio,
+        "cont_vol_min": cont_vol_min,
+        "vol_ok": vol_ok,
+        "atr_ratio": atr_ratio,
+        "cont_atr_ratio_min": cont_atr_ratio_min,
+        "atr_ratio_ok": atr_ratio_ok,
+        "slope_atr": slope_atr,
+        "cont_slope_atr_min": cont_slope_atr_min,
+        "cont_slope_atr_max": cont_slope_atr_max,
+        "slope_ok": slope_ok,
+        "k_overextension": k_overextension,
+        "cont_k_max": cont_k_max,
+        "k_ok": k_ok,
+        "rsi14": rsi14,
+        "cont_rsi_max_long": cont_rsi_max_long,
+        "cont_rsi_min_short": cont_rsi_min_short,
+        "rsi_ok": rsi_ok,
+        "break_level": break_level,
+        "break_delta_atr": break_delta_atr,
+        "break_ok": break_ok,
+        "stability_score": stability_score,
+        "stability_soft": stability_soft,
+        "stability_hard": stability_hard,
+        "stable_ok": stable_ok,
+        "stable_soft_ok": stable_soft_ok,
+        "continuation_confirmation_type": continuation_confirmation_type,
+        "confirmation_ok": confirmation_ok,
+        "cont_reject_codes": cont_reject_codes,
+    }
+
+
+def _build_explain_breakout(signal: Dict[str, Any], blockers: List[str]) -> Optional[Dict[str, Any]]:
+    """
+    Build explain_breakout fields for BREAKOUT_EXPANSION strategy blockers.
+    Only returns data if regime is BREAKOUT_EXPANSION or blockers contain B: codes.
+    """
+    regime_detected = signal.get("regime_detected")
+    has_b_blockers = any(b.startswith("B:") for b in blockers)
+    
+    if regime_detected != "BREAKOUT_EXPANSION" and not has_b_blockers:
+        return None
+    
+    from core.config import settings
+    
+    breakout_expansion_long_ok = signal.get("breakout_expansion_long_ok", False)
+    breakout_expansion_short_ok = signal.get("breakout_expansion_short_ok", False)
+    
+    breakout_long = signal.get("breakout_long", False)
+    breakout_short = signal.get("breakout_short", False)
+    
+    volume_ratio = signal.get("volume_ratio")
+    regime_breakout_vol_min = settings.get_float("REGIME_BREAKOUT_VOL_MIN")
+    vol_ok = volume_ratio is not None and volume_ratio >= regime_breakout_vol_min if volume_ratio is not None else None
+    
+    consec_close_above_donchian_20 = signal.get("consec_close_above_donchian_20")
+    consec_close_below_donchian_20 = signal.get("consec_close_below_donchian_20")
+    breakout_accept_bars = settings.get_int("BREAKOUT_ACCEPT_BARS")
+    accept_bars_ok = None
+    if consec_close_above_donchian_20 is not None:
+        accept_bars_ok = consec_close_above_donchian_20 >= breakout_accept_bars
+    elif consec_close_below_donchian_20 is not None:
+        accept_bars_ok = consec_close_below_donchian_20 >= breakout_accept_bars
+    
+    trend_stable_long = signal.get("trend_stable_long", False)
+    trend_stable_short = signal.get("trend_stable_short", False)
+    
+    donchian_high_20 = signal.get("donchian_high_20")
+    donchian_low_20 = signal.get("donchian_low_20")
+    close_ltf = signal.get("close_ltf")
+    high_ltf = signal.get("high_ltf")
+    low_ltf = signal.get("low_ltf")
+    atr14 = signal.get("atr")
+    breakout_reject_wick_atr = settings.get_float("BREAKOUT_REJECT_WICK_ATR")
+    
+    wick_ok = None
+    if breakout_long and high_ltf is not None and donchian_high_20 is not None and atr14 is not None and atr14 > 0:
+        wick_ok = low_ltf is not None and low_ltf >= donchian_high_20 - breakout_reject_wick_atr * atr14
+    elif breakout_short and low_ltf is not None and donchian_low_20 is not None and atr14 is not None and atr14 > 0:
+        wick_ok = high_ltf is not None and high_ltf <= donchian_low_20 + breakout_reject_wick_atr * atr14
+    
+    return {
+        "breakout_expansion_long_ok": breakout_expansion_long_ok,
+        "breakout_expansion_short_ok": breakout_expansion_short_ok,
+        "breakout_long": breakout_long,
+        "breakout_short": breakout_short,
+        "volume_ratio": volume_ratio,
+        "regime_breakout_vol_min": regime_breakout_vol_min,
+        "vol_ok": vol_ok,
+        "consec_close_above_donchian_20": consec_close_above_donchian_20,
+        "consec_close_below_donchian_20": consec_close_below_donchian_20,
+        "breakout_accept_bars": breakout_accept_bars,
+        "accept_bars_ok": accept_bars_ok,
+        "trend_stable_long": trend_stable_long,
+        "trend_stable_short": trend_stable_short,
+        "wick_ok": wick_ok,
+    }
+
+
+def _build_explain_anti_reversal(signal: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Build explain_anti_reversal fields when anti-reversal logic is evaluated.
+    
+    Semantics:
+    - evaluated: true when anti-reversal logic was evaluated (always true if this function returns data)
+    - blocked: true when anti-reversal actually blocks entry/selection
+    - condition_ok: true when condition passes (condition_ok == not blocked)
+    
+    Returns data when anti_reversal_block is explicitly set (True or False) or when
+    anti_reversal_reason is present, indicating evaluation occurred.
+    """
+    anti_reversal_block = signal.get("anti_reversal_block")
+    anti_reversal_reason = signal.get("anti_reversal_reason")
+    
+    # Return explain data if anti-reversal was evaluated:
+    # - anti_reversal_block is explicitly set (True or False), OR
+    # - anti_reversal_reason is present (even if empty string means "not blocked")
+    # Empty string reason with False block means "evaluated, not blocked"
+    if anti_reversal_block is None and anti_reversal_reason is None:
+        return None
+    
+    close_htf = signal.get("close_htf")
+    ema200_htf = signal.get("ema200_htf")
+    ema_fast_htf = signal.get("ema_fast_htf")
+    direction = signal.get("direction")
+    rsi_htf = signal.get("rsi14_htf")
+    rsi_htf_prev = signal.get("rsi14_htf_prev")
+    wick_ratio_ltf = signal.get("wick_ratio")
+    
+    # Determine if blocked based on anti_reversal_block flag
+    # This matches the actual decision logic
+    # If anti_reversal_block is explicitly set, use it
+    # Otherwise, infer from reason: "HTF_EMA_RECLAIM" or "HTF_RSI_SLOPE" means blocked
+    if anti_reversal_block is not None:
+        blocked = bool(anti_reversal_block)
+    else:
+        # Infer from reason if block flag not available
+        blocked = anti_reversal_reason in ("HTF_EMA_RECLAIM", "HTF_RSI_SLOPE")
+    
+    # Determine condition_ok: condition passes when NOT blocked
+    # condition_ok == (not blocked)
+    condition_ok = not blocked
+    
+    htf_reclaim_level = None
+    ema_reclaim_buffer_atr = 0.0
+    ema_reclaim_buffer_abs = 0.0
+    ema_threshold_long = None
+    ema_threshold_short = None
+    atr14_htf = signal.get("atr14_htf")
+    if settings.get_bool("REAL_MARKET_TUNING", False) and atr14_htf is not None and atr14_htf > 0 and ema_fast_htf is not None:
+        ema_reclaim_buffer_atr = settings.get_float("HTF_EMA_RECLAIM_ATR_BUFFER", 0.10)
+        ema_reclaim_buffer_abs = ema_reclaim_buffer_atr * atr14_htf
+        ema_threshold_long = ema_fast_htf - ema_reclaim_buffer_abs
+        ema_threshold_short = ema_fast_htf + ema_reclaim_buffer_abs
+    
+    # Compute condition details based on reason
+    if anti_reversal_reason == "HTF_EMA_RECLAIM":
+        if direction == "DOWN" and close_htf is not None and ema_fast_htf is not None:
+            htf_reclaim_level = ema_fast_htf
+        elif direction == "UP" and close_htf is not None and ema_fast_htf is not None:
+            htf_reclaim_level = ema_fast_htf
+    elif anti_reversal_reason == "HTF_RSI_SLOPE":
+        # RSI slope condition - already reflected in blocked status
+        pass
+    
+    result = {
+        "reason": anti_reversal_reason or "",
+        "evaluated": True,
+        "blocked": blocked,
+        "condition_ok": condition_ok,  # condition_ok == (not blocked)
+        "close_htf": close_htf,
+        "ema200_htf": ema200_htf,
+        "ema_fast_htf": ema_fast_htf,
+        "htf_reclaim_level": htf_reclaim_level,
+        "ema_reclaim_buffer_atr": ema_reclaim_buffer_atr,
+        "ema_reclaim_buffer_abs": ema_reclaim_buffer_abs,
+        "ema_threshold_long": ema_threshold_long,
+        "ema_threshold_short": ema_threshold_short,
+    }
+    return result
+
+
+def _build_explain_main(blockers: List[str], explain_pullback: Optional[Dict[str, Any]], explain_range: Optional[Dict[str, Any]], explain_anti_reversal: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """
+    Build explain_main summary for decision_clean log.
+    Extracts the main blocker with its value, threshold, and pass/fail status.
+    """
+    if not blockers:
+        return None
+    
+    main_blocker = blockers[0]
+    
+    # Try to extract from explain fields
+    if main_blocker.startswith("P:") and explain_pullback:
+        if main_blocker == "P:dist50":
+            return {
+                "blocker": main_blocker,
+                "x": explain_pullback.get("dist50_curr"),
+                "th": explain_pullback.get("dist50_max"),
+                "ok": explain_pullback.get("dist50_curr_ok"),
+            }
+        elif main_blocker == "P:dist50_prev":
+            return {
+                "blocker": main_blocker,
+                "x": explain_pullback.get("dist50_prev"),
+                "th": f"{explain_pullback.get('dist50_min')}-{explain_pullback.get('dist50_max')}",
+                "ok": explain_pullback.get("dist50_prev_ok"),
+            }
+        elif main_blocker == "P:reclaim":
+            return {
+                "blocker": main_blocker,
+                "x": explain_pullback.get("reclaim_required"),
+                "th": "required",
+                "ok": explain_pullback.get("reclaim_ok"),
+            }
+        elif main_blocker == "P:vol":
+            return {
+                "blocker": main_blocker,
+                "x": explain_pullback.get("volume_ratio"),
+                "th": explain_pullback.get("vol_min"),
+                "ok": explain_pullback.get("vol_ok"),
+            }
+        elif main_blocker == "P:stability":
+            return {
+                "blocker": main_blocker,
+                "x": explain_pullback.get("stability_score"),
+                "th": explain_pullback.get("stability_hard"),
+                "ok": explain_pullback.get("stable_ok"),
+            }
+        elif main_blocker == "P:confirm":
+            confirm = explain_pullback.get("confirm")
+            if confirm:
+                return {
+                    "blocker": main_blocker,
+                    "x": confirm.get("confirmation_type"),
+                    "th": f"body>={confirm.get('body_min')},bars>={confirm.get('min_bars')}",
+                    "ok": confirm.get("confirm_ok"),
+                }
+            else:
+                return {
+                    "blocker": main_blocker,
+                    "x": None,
+                    "th": None,
+                    "ok": None,
+                }
+        elif main_blocker == "P:body":
+            confirm = explain_pullback.get("confirm")
+            if confirm:
+                return {
+                    "blocker": main_blocker,
+                    "x": confirm.get("body_ratio"),
+                    "th": confirm.get("body_min"),
+                    "ok": confirm.get("body_ok"),
+                }
+    
+    if main_blocker.startswith("M:") and explain_range:
+        if main_blocker == "M:trend":
+            return {
+                "blocker": main_blocker,
+                "x": explain_range.get("trend"),
+                "th": "range",
+                "ok": explain_range.get("trend_ok"),
+            }
+        elif main_blocker == "M:vol":
+            return {
+                "blocker": main_blocker,
+                "x": explain_range.get("volume_ratio"),
+                "th": explain_range.get("vol_max"),
+                "ok": explain_range.get("vol_ok"),
+            }
+        elif main_blocker in ("M:range_long", "M:range_short"):
+            return {
+                "blocker": main_blocker,
+                "x": explain_range.get("edge_atr"),
+                "th": explain_range.get("edge_atr_min"),
+                "ok": explain_range.get("edge_ok"),
+            }
+    
+    if explain_anti_reversal and "anti_reversal" in main_blocker.lower():
+        return {
+            "blocker": main_blocker,
+            "x": explain_anti_reversal.get("reason"),
+            "th": "blocked",
+            "ok": explain_anti_reversal.get("condition_ok"),
+        }
+    
+    # Fallback: just the blocker code
+    return {
+        "blocker": main_blocker,
+        "x": None,
+        "th": None,
+        "ok": None,
+    }
+
+
 def _build_explain_fields(payload: Dict[str, Any], decision: Dict[str, Any]) -> Dict[str, Any]:
     signal = decision.get("signal") or {}
     price_snapshot = payload.get("price_snapshot", {})
@@ -898,6 +1922,30 @@ def _build_explain_fields(payload: Dict[str, Any], decision: Dict[str, Any]) -> 
         "selected_strategy": signal.get("selected_strategy"),
         "eligible_strategies": signal.get("eligible_strategies"),
         "strategy_block_reason": signal.get("strategy_block_reason"),
+        "router_debug": signal.get("router_debug"),
+        "stability_score": signal.get("stability_score"),
+        "stable_ok": signal.get("stable_ok"),
+        "stable_soft": signal.get("stable_soft"),
+        "stable_block": signal.get("stable_block"),
+        "stable_block_reason": signal.get("stable_block_reason"),
+        "stability_metrics": signal.get("stability_metrics"),
+        "stability_mode_used": signal.get("stability_mode_used"),
+        "adaptive_soft_stability": signal.get("adaptive_soft_stability"),
+        "continuation_confirmation_type": signal.get("continuation_confirmation_type"),
+        "confirmation_metrics": signal.get("confirmation_metrics"),
+        "anti_reversal_block": signal.get("anti_reversal_block"),
+        "anti_reversal_reason": signal.get("anti_reversal_reason"),
+        "pending_entry_status": signal.get("pending_entry_status"),
+        "event_detected": signal.get("event_detected"),
+        "event_block": signal.get("event_block"),
+        "event_cooldown_remaining": signal.get("event_cooldown_remaining"),
+        "trend_accel_long_ok": signal.get("trend_accel_long_ok"),
+        "trend_accel_short_ok": signal.get("trend_accel_short_ok"),
+        "squeeze_break_long_ok": signal.get("squeeze_break_long_ok"),
+        "squeeze_break_short_ok": signal.get("squeeze_break_short_ok"),
+        "ev_gate_enabled": signal.get("ev_gate_enabled"),
+        "ev_value": signal.get("ev_value"),
+        "ev_p": signal.get("ev_p"),
         "atr_ratio": signal.get("atr_ratio"),
         "volatility_state": signal.get("volatility_state"),
         "cont_short_ok": signal.get("cont_short_ok"),
@@ -925,6 +1973,7 @@ def _build_explain_fields(payload: Dict[str, Any], decision: Dict[str, Any]) -> 
         "close_min_n": signal.get("close_min_n"),
         "close_htf": signal.get("close_htf"),
         "ema200_htf": signal.get("ema200_htf"),
+        "ema_fast_htf": signal.get("ema_fast_htf"),
         "ema200_prev_n": signal.get("ema200_prev_n"),
         "ema200_slope_norm": signal.get("ema200_slope_norm"),
         "consec_above_ema200": signal.get("consec_above_ema200"),
@@ -932,6 +1981,8 @@ def _build_explain_fields(payload: Dict[str, Any], decision: Dict[str, Any]) -> 
         "consec_higher_close": signal.get("consec_higher_close"),
         "consec_lower_close": signal.get("consec_lower_close"),
         "atr14_htf": signal.get("atr14_htf"),
+        "rsi14_htf": signal.get("rsi14_htf"),
+        "rsi14_htf_prev": signal.get("rsi14_htf_prev"),
         "ema200_prev_n": signal.get("ema200_prev_n"),
         "ema200_slope_norm": signal.get("ema200_slope_norm"),
         "consec_above_ema200": signal.get("consec_above_ema200"),
@@ -944,6 +1995,9 @@ def _build_explain_fields(payload: Dict[str, Any], decision: Dict[str, Any]) -> 
         "reclaim_short": signal.get("reclaim_short"),
         "prev_reclaim_long": signal.get("prev_reclaim_long"),
         "prev_reclaim_short": signal.get("prev_reclaim_short"),
+        "reclaim_level_used": signal.get("reclaim_level_used"),
+        "effective_tolerance": signal.get("effective_tolerance"),
+        "distance_to_reclaim": signal.get("distance_to_reclaim"),
         "prev_rsi_long": signal.get("prev_rsi_long"),
         "prev_rsi_short": signal.get("prev_rsi_short"),
         "reentry_long": signal.get("reentry_long"),
@@ -954,6 +2008,8 @@ def _build_explain_fields(payload: Dict[str, Any], decision: Dict[str, Any]) -> 
         "consec_close_below_donchian_20": signal.get("consec_close_below_donchian_20"),
         "volume_ratio": signal.get("volume_ratio"),
         "candle_body_ratio": signal.get("candle_body_ratio"),
+        "wick_ratio": signal.get("wick_ratio"),
+        "bb_width_atr": signal.get("bb_width_atr"),
         "high_ltf": signal.get("high_ltf"),
         "low_ltf": signal.get("low_ltf"),
         "consec_above_ema50": signal.get("consec_above_ema50"),
@@ -1002,7 +2058,7 @@ def _build_decision_log(
     time_exit_signal: bool,
 ) -> Dict[str, Any]:
     price_snapshot = payload.get("price_snapshot", {})
-    return {
+    log_dict = {
         "timestamp_closed": latest_closed_ts,
         "interval": interval,
         "close": explain_fields.get("close_ltf"),
@@ -1026,6 +2082,27 @@ def _build_decision_log(
         "trend_strength": explain_fields.get("trend_strength"),
         "trend_stable_long": explain_fields.get("trend_stable_long"),
         "trend_stable_short": explain_fields.get("trend_stable_short"),
+        "stability_score": explain_fields.get("stability_score"),
+        "stable_ok": explain_fields.get("stable_ok"),
+        "stable_soft": explain_fields.get("stable_soft"),
+        "stable_block": explain_fields.get("stable_block"),
+        "stable_block_reason": explain_fields.get("stable_block_reason"),
+        "stability_mode_used": explain_fields.get("stability_mode_used"),
+        "adaptive_soft_stability": explain_fields.get("adaptive_soft_stability"),
+        "continuation_confirmation_type": explain_fields.get("continuation_confirmation_type"),
+        "anti_reversal_block": explain_fields.get("anti_reversal_block"),
+        "anti_reversal_reason": explain_fields.get("anti_reversal_reason"),
+        "pending_entry_status": explain_fields.get("pending_entry_status"),
+        "event_detected": explain_fields.get("event_detected"),
+        "event_block": explain_fields.get("event_block"),
+        "event_cooldown_remaining": explain_fields.get("event_cooldown_remaining"),
+        "trend_accel_long_ok": explain_fields.get("trend_accel_long_ok"),
+        "trend_accel_short_ok": explain_fields.get("trend_accel_short_ok"),
+        "squeeze_break_long_ok": explain_fields.get("squeeze_break_long_ok"),
+        "squeeze_break_short_ok": explain_fields.get("squeeze_break_short_ok"),
+        "ev_gate_enabled": explain_fields.get("ev_gate_enabled"),
+        "ev_value": explain_fields.get("ev_value"),
+        "ev_p": explain_fields.get("ev_p"),
         "atr_ratio": explain_fields.get("atr_ratio"),
         "volatility_state": explain_fields.get("volatility_state"),
         "trend": explain_fields.get("trend"),
@@ -1038,6 +2115,7 @@ def _build_decision_log(
         "cont_reject_codes": explain_fields.get("cont_reject_codes"),
         "close_htf": explain_fields.get("close_htf"),
         "ema200_htf": explain_fields.get("ema200_htf"),
+        "ema_fast_htf": explain_fields.get("ema_fast_htf"),
         "ema200_prev_n": explain_fields.get("ema200_prev_n"),
         "ema200_slope_norm": explain_fields.get("ema200_slope_norm"),
         "consec_above_ema200": explain_fields.get("consec_above_ema200"),
@@ -1045,6 +2123,8 @@ def _build_decision_log(
         "consec_higher_close": explain_fields.get("consec_higher_close"),
         "consec_lower_close": explain_fields.get("consec_lower_close"),
         "atr14_htf": explain_fields.get("atr14_htf"),
+        "rsi14_htf": explain_fields.get("rsi14_htf"),
+        "rsi14_htf_prev": explain_fields.get("rsi14_htf_prev"),
         "ema50_5m": explain_fields.get("ema50_ltf"),
         "ema50_prev_12": explain_fields.get("ema50_prev_12"),
         "rsi14_5m": explain_fields.get("rsi14_ltf"),
@@ -1057,6 +2137,8 @@ def _build_decision_log(
         "consec_close_below_donchian_20": explain_fields.get("consec_close_below_donchian_20"),
         "volume_ratio_5m": explain_fields.get("volume_ratio"),
         "candle_body_ratio": explain_fields.get("candle_body_ratio"),
+        "wick_ratio": explain_fields.get("wick_ratio"),
+        "bb_width_atr": explain_fields.get("bb_width_atr"),
         "reentry_long": explain_fields.get("reentry_long"),
         "reentry_short": explain_fields.get("reentry_short"),
         "breakout_long": explain_fields.get("breakout_long"),
@@ -1064,6 +2146,7 @@ def _build_decision_log(
         "eligible_strategies": explain_fields.get("eligible_strategies"),
         "selected_strategy": explain_fields.get("selected_strategy"),
         "strategy_block_reason": explain_fields.get("strategy_block_reason"),
+        "router_debug": explain_fields.get("router_debug"),
         "time_exit_signal": explain_fields.get("time_exit_signal"),
         "time_exit_bars": explain_fields.get("time_exit_bars"),
         "time_exit_progress_atr": explain_fields.get("time_exit_progress_atr"),
@@ -1081,6 +2164,9 @@ def _build_decision_log(
         "reclaim_short": explain_fields.get("reclaim_short"),
         "prev_reclaim_long": explain_fields.get("prev_reclaim_long"),
         "prev_reclaim_short": explain_fields.get("prev_reclaim_short"),
+        "reclaim_level_used": explain_fields.get("reclaim_level_used"),
+        "effective_tolerance": explain_fields.get("effective_tolerance"),
+        "distance_to_reclaim": explain_fields.get("distance_to_reclaim"),
         "prev_rsi_long": explain_fields.get("prev_rsi_long"),
         "prev_rsi_short": explain_fields.get("prev_rsi_short"),
         "prev_close": explain_fields.get("close_prev_ltf"),
@@ -1092,6 +2178,14 @@ def _build_decision_log(
         "thresholds": explain_fields.get("thresholds"),
         "time_exit_signal": time_exit_signal,
     }
+    # Add explain fields if present
+    if explain_fields.get("explain_pullback"):
+        log_dict["explain_pullback"] = explain_fields.get("explain_pullback")
+    if explain_fields.get("explain_range"):
+        log_dict["explain_range"] = explain_fields.get("explain_range")
+    if explain_fields.get("explain_anti_reversal"):
+        log_dict["explain_anti_reversal"] = explain_fields.get("explain_anti_reversal")
+    return log_dict
 
 
 def _get_wallet_usdt() -> Optional[float]:

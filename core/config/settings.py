@@ -18,6 +18,7 @@ DEFAULTS: dict[str, str] = {
     "DOTENV_DISABLE": "0",
     "APP_RUN_ONESHOT": "0",
     "RUNTIME_MODE": "",
+    "VALIDATION_MODE": "0",
 
     # State / Ledger
     "STATE_DIR": "run/state",
@@ -42,6 +43,7 @@ DEFAULTS: dict[str, str] = {
     "LOOP_SLEEP_SEC": "5",
     "LOG_SKIP_THROTTLE_SEC": "30",
     "LOG_SKIP_AGG_SEC": "60",
+    "HEALTH_SUMMARY_INTERVAL_SEC": "3600",
 
     # Strategy / Decision thresholds
     "DECISION_VOLUME_RATIO_MIN": "1.5",
@@ -67,6 +69,18 @@ DEFAULTS: dict[str, str] = {
     "BREAKOUT_RR_TARGET": "3.0",
     "CONTINUATION_SL_ATR": "1.2",
     "CONTINUATION_RR_TARGET": "1.6",
+    "CONT_BREAK_D_ATR": "0.15",
+    "CONT_SLOPE_ATR_MAX": "-0.15",
+    "CONT_SLOPE_ATR_MIN": "0.15",
+    "CONT_K_MAX": "2.2",
+    "CONT_RSI_MIN_SHORT": "30.0",
+    "CONT_RSI_MAX_LONG": "70.0",
+    "CONT_BODY_MIN": "0.50",
+    "CONT_VOL_MIN": "1.0",
+    "CONT_ATR_RATIO_MIN": "0.95",
+    "TP1_FRACTION": "0.4",
+    "TP1_RR_FRACTION": "0.6",
+    "VOLATILITY_PERCENTILE_MIN": "20.0",
     "PULLBACK_REENTRY_DIST50_MIN": "0.3",
     "PULLBACK_REENTRY_DIST50_MAX": "1.5",
     "PULLBACK_REENTRY_MIN_BARS": "2",
@@ -85,6 +99,71 @@ DEFAULTS: dict[str, str] = {
     "HTF_TREND_STRUCTURE_MIN": "0",
     "TIME_EXIT_BARS": "12",
     "TIME_EXIT_PROGRESS_ATR": "0.5",
+    "TREND_STRENGTH_MIN": "0.6",
+    "VOLATILITY_EXPANSION_THRESHOLD": "1.3",
+    "BB_WIDTH_EXPANSION_MULT": "1.2",
+    "STABILITY_WEIGHT_R": "0.55",
+    "STABILITY_WEIGHT_W": "0.25",
+    "STABILITY_WEIGHT_X": "0.20",
+    "PULLBACK_ATR_MAX": "1.0",
+    "TREND_RSI_LONG_MAX": "45.0",
+    "TREND_RSI_SHORT_MIN": "55.0",
+    "RANGE_RSI_LONG_MAX": "35.0",
+    "RANGE_RSI_SHORT_MIN": "65.0",
+    "RANGE_IN_TREND_ENABLED": "0",
+    "EXTREME_RSI_LONG_MIN": "82.0",
+    "EXTREME_RSI_SHORT_MAX": "18.0",
+
+    # Real-market tuning (REAL_MARKET_TUNING=1 relaxes empirically dominant blockers)
+    "REAL_MARKET_TUNING": "0",
+    "PULLBACK_REENTRY_DIST50_MAX_REAL": "2.5",
+    "PULLBACK_REENTRY_VOL_MIN_REAL": "0.70",
+    "CONT_VOL_MIN_REAL": "0.70",
+    "STABILITY_SOFT_REAL": "0.50",
+    "STABILITY_HARD_REAL": "0.65",
+    "HTF_EMA_RECLAIM_ATR_BUFFER": "0.10",
+    "PULLBACK_RECLAIM_TOL_ATR": "0.10",
+    "PULLBACK_RECLAIM_TOL_ABS": "0.0",
+
+    # Stability scoring
+    "STABILITY_N": "20",
+    "WICK_TH": "2.5",
+    "XMAX": "1.8",
+    "STABILITY_HARD": "0.70",
+    "STABILITY_SOFT": "0.58",
+    "ADAPTIVE_SOFT_STABILITY_ENABLED": "0",
+
+    # Continuation confirmation
+    "CONFIRM_MIN_BODY_RATIO": "0.55",
+    "CONFIRM_MIN_BODY_RATIO_RETEST": "0.45",
+    "CONFIRM_MAX_CLOSE_POS_SHORT": "0.25",
+    "CONFIRM_MAX_CLOSE_POS_LONG": "0.25",
+    "CONFIRM_RETEST_TOL_ATR": "0.25",
+    "CONFIRM_SWING_M": "12",
+    "CONFIRM_DONCHIAN_K": "10",
+    "CONFIRM_BREAK_DELTA_ATR": "0.15",
+
+    # Anti-reversal (HTF)
+    "HTF_EMA_PERIOD": "20",
+    "HTF_RSI_PERIOD": "14",
+    "HTF_RSI_SLOPE_MIN": "0.5",
+    "ANTI_REV_WICK_TH": "2.0",
+
+    # Pending entry
+    "PENDING_CONFIRM_CANDLES": "1",
+    "PENDING_EXPIRE_CANDLES": "1",
+
+    # Regimes
+    "TREND_ACCEL_VOL_MULT": "1.4",
+    "SQUEEZE_BB_WIDTH_TH": "1.2",
+    "EVENT_TR_ATR": "3.0",
+    "EVENT_COOLDOWN_CANDLES": "4",
+
+    # EV gate
+    "EV_GATE_ENABLED": "0",
+    "CONFIRM_BONUS": "0.05",
+    "EV_TP_R": "1.5",
+    "EV_SL_R": "1.0",
 
     # Risk policy
     "RISK_PER_TRADE_PCT": "5.0",
@@ -201,6 +280,18 @@ def get_optional_float(name: str) -> Optional[float]:
     except Exception:
         return None
 
+
+def _real_market_tuning() -> bool:
+    return parse_bool(get_env("REAL_MARKET_TUNING", env_default("REAL_MARKET_TUNING") or "0"), False)
+
+
+def get_tunable_float(normal_key: str, real_key: str, default: Optional[float] = None) -> float:
+    """Return *_REAL value when REAL_MARKET_TUNING=1, else normal value."""
+    if _real_market_tuning():
+        return get_float(real_key, default)
+    return get_float(normal_key, default)
+
+
 __all__ = [
     "DEFAULTS",
     "env_default",
@@ -210,4 +301,6 @@ __all__ = [
     "get_float",
     "get_optional_int",
     "get_optional_float",
+    "_real_market_tuning",
+    "get_tunable_float",
 ]
