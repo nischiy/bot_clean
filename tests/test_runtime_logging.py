@@ -105,23 +105,29 @@ def test_decision_clean_strips_strategy_ineligible_from_blockers() -> None:
 
 
 def test_router_debug_compact_rej_from_strategies_for_regime_order() -> None:
-    """router_debug.compact rej= must be first rejected strategy in strategies_for_regime order, not dict order."""
+    """router_debug.compact must summarize the evaluated candidate walk, not stale single-regime mapping."""
     from app.run import _router_debug_compact
 
-    # Dict order may put BREAKOUT_EXPANSION first; strategies_for_regime says PULLBACK_REENTRY is the routed one
     router_debug = {
         "regime_detected": "PULLBACK",
-        "strategies_for_regime": ["PULLBACK_REENTRY"],
-        "enabled_strategies": [],
-        "rejected_strategies": {
-            "BREAKOUT_EXPANSION": "B:vol",
-            "PULLBACK_REENTRY": "P:reclaim",
-        },
+        "strategies_for_regime": ["PULLBACK_REENTRY", "CONTINUATION", "TREND_ACCEL"],
+        "strategy_evaluations": [
+            {"strategy": "PULLBACK_REENTRY", "pass": False, "rejection_reason": "P:dist50", "is_global_blocker": False},
+            {"strategy": "CONTINUATION", "pass": False, "rejection_reason": "C:slope", "is_global_blocker": False},
+            {"strategy": "TREND_ACCEL", "pass": False, "rejection_reason": "A:cont", "is_global_blocker": False},
+        ],
+        "candidate_count": 3,
+        "evaluated_count": 3,
+        "selected_strategy": "NONE",
+        "hold_reason": "all_strategies_failed",
     }
     compact = _router_debug_compact(router_debug)
     assert compact is not None
-    assert "rej=PULLBACK_REENTRY:P:reclaim" in compact or "rej=PULLBACK_REENTRY:" in compact
-    assert "rej=BREAKOUT_EXPANSION" not in compact
+    assert "cand=3" in compact
+    assert "eval=3" in compact
+    assert "sel=NONE" in compact
+    assert "hold=all_strategies_failed" in compact
+    assert "rej=PULLBACK_REENTRY:P:dist50|CONTINUATION:C:slope|TREND_ACCEL:A:cont" in compact
 
 
 def test_router_debug_compact_rej_none_when_all_enabled() -> None:
@@ -131,9 +137,44 @@ def test_router_debug_compact_rej_none_when_all_enabled() -> None:
     router_debug = {
         "regime_detected": "PULLBACK",
         "strategies_for_regime": ["PULLBACK_REENTRY"],
-        "enabled_strategies": ["PULLBACK_REENTRY"],
-        "rejected_strategies": {},
+        "strategy_evaluations": [
+            {"strategy": "PULLBACK_REENTRY", "pass": True, "rejection_reason": None, "is_global_blocker": False},
+        ],
+        "candidate_count": 1,
+        "evaluated_count": 1,
+        "selected_strategy": "PULLBACK_REENTRY",
     }
     compact = _router_debug_compact(router_debug)
     assert compact is not None
+    assert "sel=PULLBACK_REENTRY" in compact
     assert "rej=none" in compact
+
+
+def test_decision_clean_includes_regime_and_hold_summary() -> None:
+    from app import run
+
+    logger = logging.getLogger("decision_clean_test_regime")
+    logger.setLevel(logging.INFO)
+    stream = StringIO()
+    handler = logging.StreamHandler(stream)
+    logger.handlers = [handler]
+    logger.propagate = False
+
+    decision_log = {
+        "decision": "HOLD",
+        "regime_detected": "TREND_CONTINUATION",
+        "regime_used_for_routing": "TREND_CONTINUATION",
+        "selected_strategy": "NONE",
+        "eligible_strategies": [],
+        "strategy_block_reason": "gated_by_conditions",
+        "hold_reason_summary": "TREND_CONTINUATION:no_candidate_passed",
+        "regime_explain": {"reason": "directional_continuation_context", "directional_context": True},
+        "reject_reasons": ["C:slope", "B:breakout"],
+    }
+
+    run._log_decision_clean(logger, decision_log)
+    handler.flush()
+    payload = json.loads(stream.getvalue().strip().splitlines()[-1])
+
+    assert payload["hold_reason_summary"] == "TREND_CONTINUATION:no_candidate_passed"
+    assert payload["regime_explain"]["reason"] == "directional_continuation_context"

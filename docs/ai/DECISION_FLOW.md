@@ -2,6 +2,22 @@
 
 ## New Production Flow (JSON Contracts)
 
+## Predictive-First Flow
+
+Decision generation now uses a three-stage deterministic path:
+
+1. `Predictive inference`
+   - `app.strategy.predictive_engine` classifies early directional opportunity, failure transitions, directional events vs chaotic events, and market-state transitions.
+   - outputs `predictive_bias`, `predictive_state`, `confidence_tier`, trigger reasons, invalidations, and state-machine transition fields.
+2. `Legacy validation`
+   - existing strategies still run every candle.
+   - they now contribute supporting/opposing evidence, confirmation quality, and analytics labels instead of acting as the only trade source.
+3. `Execution decision`
+   - maps predictive bias plus validation quality into `OPEN_*_EARLY`, `OPEN_*_CONFIRMED`, or hold variants.
+   - keeps legacy `intent` for runtime compatibility.
+
+The predictive layer is explainable by construction: each branch is rule-based, named, logged, and restart-safe.
+
 ### Stage 0: Market Data Validation (Fail-Closed)
 - **Input:** LTF/HTF DataFrames (default 5m/1h)
 - **Source:** `app.data.market_data_validator.validate_market_data()`
@@ -53,6 +69,34 @@
 - **Deterministic:** Yes (given same payload and state)
 - **Side effects:** Updates decision state (pending entries, cooldowns, event timestamps) via `state_update` field
 - **Authority:** INTENT ONLY - no execution authority
+
+**Execution decision contract additions:**
+- top-level:
+  - `execution_decision`
+  - `entry_mode`
+- `signal.predictive`
+  - predictive bias/state/confidence
+  - transition fields
+  - trigger and invalidation reasons
+- `signal.validation`
+  - `confirmation_quality`
+  - supporting/opposing strategies
+  - validator reject map
+- `signal.execution_profile`
+  - size multiplier
+  - event hold flag
+- `signal.analytics`
+  - pending queue size
+  - finalized labels
+  - latest missed-opportunity telemetry
+
+**Early-entry rules:**
+- allowed only when predictive bias is directional, confidence is at least `MEDIUM`, the thesis is not late/chaotic, and no structural validator reject or risk veto is active.
+- uses smaller size (`EARLY_ENTRY_SIZE_MULTIPLIER`) and tighter invalidation handling.
+
+**Confirmed-entry rules:**
+- preserves the legacy confirmed strategy path and standard sizing.
+- the predictive layer can strengthen confidence, but a neutral predictive read does not erase an otherwise valid legacy confirmed trade.
 
 **Regime Detection (5m, deterministic, exclusive, top-down, from `_detect_regime` in `decision_engine.py:310-383`):**
 - Each closed 5m candle is classified into exactly one regime:

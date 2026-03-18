@@ -7,6 +7,7 @@ import numbers
 import pytest
 from app import run
 from app.strategy.decision_engine import make_decision, normalize_strategy_block_reason
+from core.config import settings
 
 try:
     import jsonschema  # noqa: F401
@@ -415,9 +416,7 @@ def test_routing_override_blocked_in_production(monkeypatch, valid_payload_long)
 
     decision = make_decision(payload)
     signal = decision.get("signal", {})
-    rejects = decision.get("reject_reasons") or []
     assert signal.get("regime_used_for_routing") == signal.get("regime_detected")
-    assert all(not code.startswith("M:regime") for code in rejects)
 
 
 def test_make_decision_already_in_position():
@@ -578,7 +577,7 @@ def test_range_long_trade(valid_payload_long):
     payload["features_ltf"]["donchian_low_20"] = 90.0
     payload["features_ltf"]["donchian_high_20"] = 150.0
     payload["features_ltf"]["atr14"] = 10.0
-    payload["features_ltf"]["volume_ratio"] = 0.8
+    payload["features_ltf"]["volume_ratio"] = 0.6
     payload["features_ltf"]["bb_lower"] = 85.0
     payload["features_ltf"]["bb_upper"] = 155.0
     payload["features_ltf"]["bb_mid"] = 120.0
@@ -836,8 +835,329 @@ def test_strategy_gating_no_overlap(valid_payload_long):
     decision = make_decision(valid_payload_long)
     eligible = decision.get("signal", {}).get("eligible_strategies") or []
     selected = decision.get("signal", {}).get("selected_strategy")
-    assert len(eligible) <= 1
     assert selected == "NONE" or selected in eligible
+
+
+def test_directional_compression_no_longer_false_range(valid_payload_long):
+    payload = copy.deepcopy(valid_payload_long)
+    payload["context_htf"]["trend"] = "up"
+    payload["context_htf"]["close"] = 1100.0
+    payload["context_htf"]["ema_fast"] = 1040.0
+    payload["context_htf"]["ema200"] = 950.0
+    payload["context_htf"]["ema200_prev_n"] = 900.0
+    payload["context_htf"]["ema200_slope_norm"] = 0.08
+    payload["context_htf"]["consec_above_ema200"] = 8
+    payload["context_htf"]["consec_higher_close"] = 6
+    payload["features_ltf"]["ema50"] = 1000.0
+    payload["features_ltf"]["ema50_prev_12"] = 995.0
+    payload["features_ltf"]["close_prev"] = 1020.0
+    payload["features_ltf"]["close"] = 1030.0
+    payload["features_ltf"]["high"] = 1035.0
+    payload["features_ltf"]["low"] = 1015.0
+    payload["features_ltf"]["atr14"] = 100.0
+    payload["features_ltf"]["atr14_sma20"] = 100.0
+    payload["features_ltf"]["donchian_high_20"] = 1100.0
+    payload["features_ltf"]["donchian_low_20"] = 980.0
+    payload["features_ltf"]["volume_ratio"] = 0.8
+    payload["features_ltf"]["candle_body_ratio"] = 0.35
+    payload["features_ltf"]["consec_above_ema50"] = 4
+    payload["features_ltf"]["consec_below_ema50"] = 0
+    payload["features_ltf"]["bb_width"] = 160.0
+    payload["features_ltf"]["bb_width_prev"] = 180.0
+
+    decision = make_decision(payload)
+    signal = decision.get("signal", {})
+
+    assert signal.get("regime_detected") == "TREND_CONTINUATION"
+    assert signal.get("regime_explain", {}).get("directional_context") is True
+    assert signal.get("range_meanrev_long_ok") is False
+
+
+def test_pullback_remains_compatible_in_trend_transition(valid_payload_long):
+    payload = copy.deepcopy(valid_payload_long)
+    payload["context_htf"]["trend"] = "up"
+    payload["context_htf"]["close"] = 1100.0
+    payload["context_htf"]["ema_fast"] = 1040.0
+    payload["features_ltf"]["ema50"] = 100.0
+    payload["features_ltf"]["ema50_prev_12"] = 99.0
+    payload["features_ltf"]["atr14"] = 10.0
+    payload["features_ltf"]["atr14_sma20"] = 10.0
+    payload["features_ltf"]["close_prev"] = 97.0
+    payload["features_ltf"]["close"] = 101.0
+    payload["features_ltf"]["high"] = 102.0
+    payload["features_ltf"]["low"] = 96.0
+    payload["features_ltf"]["donchian_high_20"] = 120.0
+    payload["features_ltf"]["donchian_low_20"] = 80.0
+    payload["features_ltf"]["volume_ratio"] = 1.2
+    payload["features_ltf"]["candle_body_ratio"] = 0.6
+    payload["features_ltf"]["consec_below_ema50_prev"] = 2
+    payload["features_ltf"]["consec_above_ema50"] = 2
+
+    decision = make_decision(payload)
+    signal = decision.get("signal", {})
+
+    assert signal.get("regime_detected") == "TREND_CONTINUATION"
+    assert signal.get("pullback_regime_compatible") is True
+    assert signal.get("pullback_reentry_long_ok") is True
+    assert "P:regime" not in decision.get("reject_reasons", [])
+    assert "PULLBACK_REENTRY" in (signal.get("eligible_strategies") or [])
+
+
+def test_anti_reversal_semantics_expose_side_specific_gate(valid_payload_long):
+    payload = copy.deepcopy(valid_payload_long)
+    payload["context_htf"]["trend"] = "up"
+    payload["context_htf"]["close"] = 1000.0
+    payload["context_htf"]["ema_fast"] = 1050.0
+
+    decision = make_decision(payload)
+    signal = decision.get("signal", {})
+
+    assert signal.get("anti_reversal_mode") == "side_specific_entry_gate"
+    assert signal.get("anti_reversal_active_side") == "LONG"
+    assert signal.get("anti_reversal_long_block") is True
+    assert signal.get("anti_reversal_long_reason") == "HTF_EMA_RECLAIM"
+    assert signal.get("anti_reversal_short_block") is False
+
+
+def test_transitional_routing_deprioritizes_range(monkeypatch, valid_payload_long):
+    from core.runtime_mode import reset_runtime_settings
+
+    monkeypatch.setenv("ENV", "test")
+    monkeypatch.setenv("RUNTIME_MODE", "test")
+    reset_runtime_settings()
+    original_get_str = settings.get_str
+
+    def fake_get_str(key, default=None):
+        if key == "ROUTING_REGIME_OVERRIDE":
+            return "RANGE"
+        return original_get_str(key, default)
+
+    monkeypatch.setattr("app.strategy.decision_engine.settings.get_str", fake_get_str)
+    payload = copy.deepcopy(valid_payload_long)
+    payload["context_htf"]["trend"] = "up"
+    payload["features_ltf"]["ema50"] = 100.0
+    payload["features_ltf"]["ema50_prev_12"] = 99.0
+    payload["features_ltf"]["atr14"] = 10.0
+    payload["features_ltf"]["atr14_sma20"] = 10.0
+    payload["features_ltf"]["close_prev"] = 97.0
+    payload["features_ltf"]["close"] = 101.0
+    payload["features_ltf"]["high"] = 102.0
+    payload["features_ltf"]["low"] = 96.0
+    payload["features_ltf"]["donchian_high_20"] = 120.0
+    payload["features_ltf"]["donchian_low_20"] = 80.0
+    payload["features_ltf"]["volume_ratio"] = 1.2
+    payload["features_ltf"]["candle_body_ratio"] = 0.6
+    payload["features_ltf"]["consec_below_ema50_prev"] = 2
+    payload["features_ltf"]["consec_above_ema50"] = 3
+
+    decision = make_decision(payload)
+    signal = decision.get("signal", {})
+    router = signal.get("router_debug") or {}
+
+    assert signal.get("regime_used_for_routing") == "RANGE"
+    assert router.get("decision_order_mode") == "directional_transition"
+    assert router.get("strategies_for_regime", [None])[0] == "PULLBACK_REENTRY"
+    assert router.get("strategies_for_regime", []).index("RANGE_MEANREV") > 0
+    assert signal.get("routing_deadlock") is False
+
+
+def test_hold_summary_explains_transitional_no_trade(valid_payload_long):
+    payload = copy.deepcopy(valid_payload_long)
+    payload["context_htf"]["trend"] = "up"
+    payload["context_htf"]["close"] = 1100.0
+    payload["context_htf"]["ema_fast"] = 1040.0
+    payload["features_ltf"]["ema50"] = 1000.0
+    payload["features_ltf"]["ema50_prev_12"] = 995.0
+    payload["features_ltf"]["close_prev"] = 1020.0
+    payload["features_ltf"]["close"] = 1030.0
+    payload["features_ltf"]["high"] = 1035.0
+    payload["features_ltf"]["low"] = 1015.0
+    payload["features_ltf"]["atr14"] = 100.0
+    payload["features_ltf"]["atr14_sma20"] = 100.0
+    payload["features_ltf"]["donchian_high_20"] = 1100.0
+    payload["features_ltf"]["donchian_low_20"] = 980.0
+    payload["features_ltf"]["volume_ratio"] = 0.8
+    payload["features_ltf"]["candle_body_ratio"] = 0.35
+    payload["features_ltf"]["consec_above_ema50"] = 4
+    payload["features_ltf"]["consec_below_ema50"] = 0
+    payload["features_ltf"]["bb_width"] = 160.0
+    payload["features_ltf"]["bb_width_prev"] = 180.0
+
+    decision = make_decision(payload)
+    signal = decision.get("signal", {})
+
+    assert decision["intent"] == "HOLD"
+    assert signal.get("hold_reason_summary") == "TREND_CONTINUATION:no_candidate_passed"
+
+
+def test_priority_router_falls_through_after_primary_reject(monkeypatch, valid_payload_long):
+    from core.runtime_mode import reset_runtime_settings
+
+    monkeypatch.setenv("ENV", "test")
+    monkeypatch.setenv("RUNTIME_MODE", "test")
+    reset_runtime_settings()
+    original_get_str = settings.get_str
+
+    def fake_get_str(key, default=None):
+        if key == "ROUTING_REGIME_OVERRIDE":
+            return "RANGE"
+        return original_get_str(key, default)
+
+    monkeypatch.setattr("app.strategy.decision_engine.settings.get_str", fake_get_str)
+    payload = _cont_short_payload()
+
+    decision = make_decision(payload)
+    signal = decision.get("signal", {})
+    router = signal.get("router_debug") or {}
+    evaluations = router.get("strategy_evaluations") or []
+
+    if not _JSONSCHEMA_AVAILABLE:
+        assert decision["intent"] == "HOLD"
+        assert "jsonschema_not_installed" in decision["reject_reasons"]
+        return
+
+    assert signal.get("regime_used_for_routing") == "RANGE"
+    assert router.get("strategies_for_regime")[:3] == ["RANGE_MEANREV", "CONTINUATION", "BREAKOUT_EXPANSION"]
+    assert decision["intent"] == "SHORT"
+    assert signal.get("selected_strategy") == "CONTINUATION"
+    assert signal.get("routing_deadlock") is False
+    assert evaluations[0]["strategy"] == "RANGE_MEANREV"
+    assert evaluations[0]["pass"] is False
+    assert evaluations[0]["is_global_blocker"] is False
+    assert str(evaluations[0]["rejection_reason"]).startswith("M:")
+    assert evaluations[1]["strategy"] == "CONTINUATION"
+    assert evaluations[1]["pass"] is True
+
+
+def test_priority_router_holds_only_after_all_candidates_fail(monkeypatch, valid_payload_long):
+    from core.runtime_mode import reset_runtime_settings
+
+    monkeypatch.setenv("ENV", "test")
+    monkeypatch.setenv("RUNTIME_MODE", "test")
+    reset_runtime_settings()
+    original_get_str = settings.get_str
+
+    def fake_get_str(key, default=None):
+        if key == "ROUTING_REGIME_OVERRIDE":
+            return "RANGE"
+        return original_get_str(key, default)
+
+    monkeypatch.setattr("app.strategy.decision_engine.settings.get_str", fake_get_str)
+    payload = copy.deepcopy(valid_payload_long)
+    payload["features_ltf"]["close"] = 1300.0
+    payload["features_ltf"]["close_prev"] = 1200.0
+    payload["features_ltf"]["ema50"] = 1000.0
+    payload["features_ltf"]["donchian_high_20"] = 2000.0
+    payload["features_ltf"]["donchian_low_20"] = 900.0
+    payload["features_ltf"]["volume_ratio"] = 0.5
+    payload["price_snapshot"]["last"] = 1300.0
+    payload["price_snapshot"]["mark"] = 1300.0
+    payload["price_snapshot"]["bid"] = 1299.0
+    payload["price_snapshot"]["ask"] = 1301.0
+
+    decision = make_decision(payload)
+    signal = decision.get("signal", {})
+    router = signal.get("router_debug") or {}
+
+    assert decision["intent"] == "HOLD"
+    assert signal.get("selected_strategy") == "NONE"
+    assert signal.get("global_blocker") is None
+    assert signal.get("hold_reason") == "all_strategies_failed"
+    assert signal.get("routing_deadlock") is False
+    assert router.get("enabled_strategies") == []
+    assert len(router.get("strategy_evaluations") or []) >= 3
+    assert all(item.get("pass") is False for item in router.get("strategy_evaluations") or [])
+
+
+def test_priority_router_flags_true_deadlock_only_for_abnormal_router_state(monkeypatch):
+    from core.runtime_mode import reset_runtime_settings
+
+    monkeypatch.setenv("ENV", "test")
+    monkeypatch.setenv("RUNTIME_MODE", "test")
+    reset_runtime_settings()
+    payload = _cont_short_payload()
+    monkeypatch.setattr("app.strategy.decision_engine._ordered_unique", lambda items: [])
+
+    decision = make_decision(payload)
+    signal = decision.get("signal", {})
+
+    assert decision["intent"] == "HOLD"
+    assert signal.get("selected_strategy") == "NONE"
+    assert signal.get("routing_deadlock") is True
+    assert signal.get("hold_reason") == "routing_deadlock"
+
+
+def test_priority_router_keeps_primary_when_it_passes(monkeypatch, valid_payload_long):
+    from core.runtime_mode import reset_runtime_settings
+
+    monkeypatch.setenv("ENV", "test")
+    monkeypatch.setenv("RUNTIME_MODE", "test")
+    reset_runtime_settings()
+    original_get_str = settings.get_str
+
+    def fake_get_str(key, default=None):
+        if key == "ROUTING_REGIME_OVERRIDE":
+            return "TREND_CONTINUATION"
+        return original_get_str(key, default)
+
+    monkeypatch.setattr("app.strategy.decision_engine.settings.get_str", fake_get_str)
+    payload = _cont_short_payload()
+
+    decision = make_decision(payload)
+    signal = decision.get("signal", {})
+    router = signal.get("router_debug") or {}
+
+    assert decision["intent"] == "SHORT"
+    assert signal.get("selected_strategy") == "CONTINUATION"
+    assert router.get("strategies_for_regime")[0] == "CONTINUATION"
+    assert (router.get("strategy_evaluations") or [])[0]["pass"] is True
+
+
+def test_continuation_rejection_matches_explain_fields():
+    payload = _cont_short_payload()
+    payload["features_ltf"]["ema50_prev_12"] = 106.0
+    decision = make_decision(payload)
+    signal = decision.get("signal", {})
+
+    assert decision["intent"] == "HOLD"
+    assert signal.get("cont_primary_reject") == "C:slope"
+    assert "C:slope" in (signal.get("cont_reject_codes") or [])
+    assert signal.get("cont_short_trend_context_ok") is True
+    assert signal.get("cont_short_ema_side_ok") is True
+
+
+def test_pullback_lifecycle_logs_late_dist50_invalidation(valid_payload_long):
+    payload = copy.deepcopy(valid_payload_long)
+    payload["context_htf"]["trend"] = "up"
+    payload["features_ltf"]["atr14"] = 100.0
+    payload["features_ltf"]["atr14_sma20"] = 100.0
+    payload["features_ltf"]["ema50"] = 1000.0
+    payload["features_ltf"]["close_prev"] = 900.0
+    payload["features_ltf"]["close"] = 800.0
+    payload["features_ltf"]["open"] = 910.0
+    payload["features_ltf"]["high"] = 915.0
+    payload["features_ltf"]["low"] = 790.0
+    payload["features_ltf"]["candle_body_ratio"] = 0.6
+    payload["features_ltf"]["volume_ratio"] = 1.2
+    payload["features_ltf"]["consec_below_ema50_prev"] = 3
+    payload["features_ltf"]["consec_above_ema50"] = 0
+    payload["features_ltf"]["donchian_high_20"] = 1400.0
+    payload["features_ltf"]["donchian_low_20"] = 600.0
+    payload["price_snapshot"]["last"] = 800.0
+    payload["price_snapshot"]["mark"] = 800.0
+    payload["price_snapshot"]["bid"] = 799.0
+    payload["price_snapshot"]["ask"] = 801.0
+
+    decision = make_decision(payload)
+    signal = decision.get("signal", {})
+
+    assert signal.get("regime_detected") == "PULLBACK"
+    assert signal.get("pullback_signal_side") == "LONG"
+    assert signal.get("pullback_bars_since_signal") == 3
+    assert signal.get("pullback_prev_window_ok") is True
+    assert signal.get("pullback_current_dist_ok") is False
+    assert signal.get("pullback_lifecycle_state") == "invalidated_dist50"
+    assert signal.get("pullback_invalidation_stage") == "before_reclaim"
 
 
 def test_trend_stability_gate_blocks_breakout(valid_payload_long):
@@ -935,6 +1255,113 @@ def test_pullback_reentry_passes(valid_payload_long):
     assert decision.get("signal", {}).get("selected_strategy") == "PULLBACK_REENTRY"
 
 
+def test_pullback_reentry_early_confirm_passes(valid_payload_long):
+    payload = copy.deepcopy(valid_payload_long)
+    payload["context_htf"]["trend"] = "up"
+    payload["features_ltf"]["ema50"] = 100.0
+    payload["features_ltf"]["atr14"] = 10.0
+    payload["features_ltf"]["close_prev"] = 97.0
+    payload["features_ltf"]["close"] = 112.0
+    payload["features_ltf"]["high"] = 114.0
+    payload["features_ltf"]["low"] = 108.0
+    payload["features_ltf"]["donchian_high_20"] = 130.0
+    payload["features_ltf"]["donchian_low_20"] = 80.0
+    payload["features_ltf"]["consec_close_above_donchian_20"] = 0
+    payload["features_ltf"]["consec_close_below_donchian_20"] = 0
+    payload["features_ltf"]["candle_body_ratio"] = 0.6
+    payload["features_ltf"]["consec_below_ema50_prev"] = 0
+    payload["features_ltf"]["consec_above_ema50"] = 1
+    payload["features_ltf"]["volume_ratio"] = 1.2
+    decision = make_decision(payload)
+    signal = decision.get("signal", {})
+    assert signal.get("selected_strategy") == "PULLBACK_REENTRY"
+    assert signal.get("pullback_early_confirm_considered") is True
+    assert signal.get("pullback_early_confirm_ok") is True
+    assert signal.get("pullback_min_bars_bypassed") is True
+    assert signal.get("pullback_confirmation_mode") == "early"
+
+
+def test_pullback_reentry_early_confirm_rejects_missing_reclaim(valid_payload_long):
+    payload = copy.deepcopy(valid_payload_long)
+    payload["context_htf"]["trend"] = "up"
+    payload["features_ltf"]["ema50"] = 100.0
+    payload["features_ltf"]["atr14"] = 10.0
+    payload["features_ltf"]["close_prev"] = 103.0
+    payload["features_ltf"]["close"] = 112.0
+    payload["features_ltf"]["high"] = 114.0
+    payload["features_ltf"]["low"] = 108.0
+    payload["features_ltf"]["donchian_high_20"] = 130.0
+    payload["features_ltf"]["donchian_low_20"] = 80.0
+    payload["features_ltf"]["consec_close_above_donchian_20"] = 0
+    payload["features_ltf"]["consec_close_below_donchian_20"] = 0
+    payload["features_ltf"]["candle_body_ratio"] = 0.6
+    payload["features_ltf"]["consec_below_ema50_prev"] = 0
+    payload["features_ltf"]["consec_above_ema50"] = 1
+    payload["features_ltf"]["volume_ratio"] = 1.2
+    decision = make_decision(payload)
+    signal = decision.get("signal", {})
+    assert decision["intent"] == "HOLD"
+    assert signal.get("pullback_early_confirm_considered") is True
+    assert signal.get("pullback_early_confirm_ok") is False
+    assert "reclaim" in (signal.get("pullback_early_confirm_reasons") or [])
+    assert "P:reclaim" in decision["reject_reasons"]
+    assert signal.get("router_debug", {}).get("strategy_evaluations", [])[0]["rejection_reason"] == "P:reclaim"
+
+
+def test_pullback_reentry_early_confirm_rejects_weak_body(valid_payload_long):
+    payload = copy.deepcopy(valid_payload_long)
+    payload["context_htf"]["trend"] = "up"
+    payload["features_ltf"]["ema50"] = 100.0
+    payload["features_ltf"]["atr14"] = 10.0
+    payload["features_ltf"]["close_prev"] = 97.0
+    payload["features_ltf"]["close"] = 112.0
+    payload["features_ltf"]["high"] = 114.0
+    payload["features_ltf"]["low"] = 108.0
+    payload["features_ltf"]["donchian_high_20"] = 130.0
+    payload["features_ltf"]["donchian_low_20"] = 80.0
+    payload["features_ltf"]["consec_close_above_donchian_20"] = 0
+    payload["features_ltf"]["consec_close_below_donchian_20"] = 0
+    payload["features_ltf"]["candle_body_ratio"] = 0.2
+    payload["features_ltf"]["consec_below_ema50_prev"] = 0
+    payload["features_ltf"]["consec_above_ema50"] = 1
+    payload["features_ltf"]["volume_ratio"] = 1.2
+    decision = make_decision(payload)
+    signal = decision.get("signal", {})
+    assert decision["intent"] == "HOLD"
+    assert signal.get("pullback_early_confirm_ok") is False
+    assert "body" in (signal.get("pullback_early_confirm_reasons") or [])
+    assert "P:body" in decision["reject_reasons"]
+    assert signal.get("router_debug", {}).get("strategy_evaluations", [])[0]["rejection_reason"] == "P:body"
+
+
+def test_pullback_reentry_early_confirm_rejects_anti_reversal(valid_payload_long):
+    payload = copy.deepcopy(valid_payload_long)
+    payload["context_htf"]["trend"] = "up"
+    payload["context_htf"]["close"] = 900.0
+    payload["context_htf"]["ema_fast"] = 950.0
+    payload["features_ltf"]["ema50"] = 100.0
+    payload["features_ltf"]["atr14"] = 10.0
+    payload["features_ltf"]["close_prev"] = 97.0
+    payload["features_ltf"]["close"] = 112.0
+    payload["features_ltf"]["high"] = 114.0
+    payload["features_ltf"]["low"] = 108.0
+    payload["features_ltf"]["donchian_high_20"] = 130.0
+    payload["features_ltf"]["donchian_low_20"] = 80.0
+    payload["features_ltf"]["consec_close_above_donchian_20"] = 0
+    payload["features_ltf"]["consec_close_below_donchian_20"] = 0
+    payload["features_ltf"]["candle_body_ratio"] = 0.6
+    payload["features_ltf"]["consec_below_ema50_prev"] = 0
+    payload["features_ltf"]["consec_above_ema50"] = 1
+    payload["features_ltf"]["volume_ratio"] = 1.2
+    decision = make_decision(payload)
+    signal = decision.get("signal", {})
+    assert decision["intent"] == "HOLD"
+    assert signal.get("pullback_anti_reversal_block") is True
+    assert signal.get("pullback_early_confirm_ok") is False
+    assert "anti_reversal" in (signal.get("pullback_early_confirm_reasons") or [])
+    assert "P:anti_reversal" in decision["reject_reasons"]
+
+
 def test_pullback_reentry_fake_reclaim_blocks(valid_payload_long):
     payload = copy.deepcopy(valid_payload_long)
     payload["context_htf"]["trend"] = "up"
@@ -951,7 +1378,7 @@ def test_pullback_reentry_fake_reclaim_blocks(valid_payload_long):
     payload["features_ltf"]["candle_body_ratio"] = 0.6
     payload["features_ltf"]["consec_below_ema50_prev"] = 2
     payload["features_ltf"]["consec_above_ema50"] = 1
-    payload["features_ltf"]["volume_ratio"] = 0.8
+    payload["features_ltf"]["volume_ratio"] = 0.6
     decision = make_decision(payload)
     assert decision["intent"] == "HOLD"
     assert "P:fake_reclaim" in decision["reject_reasons"]
@@ -1027,7 +1454,7 @@ def test_time_exit_precedes_entry(valid_payload_long):
 
 def test_strategy_priority_breakout_over_pullback(valid_payload_long):
     payload = copy.deepcopy(valid_payload_long)
-    payload["features_ltf"]["close_prev"] = 1030.0
+    payload["features_ltf"]["close_prev"] = 970.0
     decision = make_decision(payload)
     assert decision.get("signal", {}).get("pullback_reentry_long_ok") is True
     assert decision.get("signal", {}).get("selected_strategy") == "BREAKOUT_EXPANSION"

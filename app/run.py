@@ -1081,22 +1081,44 @@ def _prioritize_blockers(blockers: List[str]) -> List[str]:
 
 def _router_debug_compact(router_debug: Optional[Dict[str, Any]]) -> Optional[str]:
     """One-line summary of router state for decision_clean.
-    rej= is derived from first rejected strategy in strategies_for_regime order, not dict order.
+    Uses the evaluated candidate walk when available; falls back to legacy mapped-strategy summary.
     """
     if not router_debug:
         return None
     regime = router_debug.get("regime_detected") or "?"
     for_regime = router_debug.get("strategies_for_regime") or []
-    enabled = router_debug.get("enabled_strategies") or []
-    rejected = router_debug.get("rejected_strategies") or {}
-    parts = [f"r={regime}", f"map={for_regime[:1] or []}", f"enabled={len(enabled)}"]
-    rej_str = "none"
-    for name in for_regime:
-        code = rejected.get(name)
-        if code is not None and str(code).strip() and str(code).strip().lower() != "unknown":
-            rej_str = f"{name}:{str(code)[:20]}"
-            break
-    parts.append(f"rej={rej_str}")
+    evaluations = router_debug.get("strategy_evaluations") or []
+    selected = router_debug.get("selected_strategy") or "NONE"
+    hold_reason = router_debug.get("hold_reason")
+    candidate_count = router_debug.get("candidate_count")
+    if candidate_count is None:
+        candidate_count = len(for_regime)
+    evaluated_count = router_debug.get("evaluated_count")
+    if evaluated_count is None:
+        evaluated_count = len(evaluations)
+    parts = [f"r={regime}", f"cand={candidate_count}", f"eval={evaluated_count}", f"sel={selected}"]
+    if hold_reason:
+        parts.append(f"hold={hold_reason}")
+    rej_items: List[str] = []
+    if evaluations:
+        for item in evaluations:
+            if item.get("pass"):
+                continue
+            name = item.get("strategy")
+            code = item.get("rejection_reason")
+            if name and code and str(code).strip() and str(code).strip().lower() != "unknown":
+                rej_items.append(f"{name}:{str(code)[:20]}")
+            if len(rej_items) >= 3:
+                break
+    else:
+        rejected = router_debug.get("rejected_strategies") or {}
+        for name in for_regime:
+            code = rejected.get(name)
+            if code is not None and str(code).strip() and str(code).strip().lower() != "unknown":
+                rej_items.append(f"{name}:{str(code)[:20]}")
+            if len(rej_items) >= 3:
+                break
+    parts.append(f"rej={'|'.join(rej_items) if rej_items else 'none'}")
     return " ".join(parts)
 
 
@@ -1139,6 +1161,7 @@ def _log_decision_clean(logger: logging.Logger, decision_log: Dict[str, Any]) ->
         decision_log.get("explain_pullback"),
         decision_log.get("explain_range"),
         decision_log.get("explain_anti_reversal"),
+        decision_log.get("explain_continuation"),
     )
     
     gating_summary = blockers[0] if blockers else None
@@ -1152,6 +1175,7 @@ def _log_decision_clean(logger: logging.Logger, decision_log: Dict[str, Any]) ->
         "selected_strategy": decision_log.get("selected_strategy"),
         "eligible_strategies": decision_log.get("eligible_strategies"),
         "strategy_block_reason": decision_log.get("strategy_block_reason"),
+        "hold_reason_summary": decision_log.get("hold_reason_summary"),
         "decision": decision_log.get("decision"),
         "stability_score": decision_log.get("stability_score"),
         "stability_mode_used": stability_mode_used,
@@ -1168,6 +1192,8 @@ def _log_decision_clean(logger: logging.Logger, decision_log: Dict[str, Any]) ->
         "blocker_categories": categories[:6],
         "gating_summary": gating_summary,
     }
+    if decision_log.get("regime_explain") is not None:
+        payload["regime_explain"] = decision_log.get("regime_explain")
     if router_compact is not None:
         payload["router_debug"] = {"compact": router_compact}
     if reclaim_compact is not None:
@@ -1328,6 +1354,11 @@ def _build_explain_pullback(signal: Dict[str, Any], blockers: List[str]) -> Opti
             bars_since_signal = consec_above_ema50_prev
         
         bars_ok = bars_since_signal is not None and bars_since_signal >= min_bars if bars_since_signal is not None else None
+        early_confirm_considered = signal.get("pullback_early_confirm_considered")
+        early_confirm_ok = signal.get("pullback_early_confirm_ok")
+        early_confirm_reasons = signal.get("pullback_early_confirm_reasons") or []
+        min_bars_bypassed = signal.get("pullback_min_bars_bypassed")
+        effective_confirmation_mode = signal.get("pullback_confirmation_mode")
         
         # Determine confirmation type and overall confirm_ok
         close_prev = signal.get("close_prev_ltf")
@@ -1352,6 +1383,9 @@ def _build_explain_pullback(signal: Dict[str, Any], blockers: List[str]) -> Opti
             elif body_ok is False:
                 confirmation_type = "BODY"
                 confirm_ok = False
+            elif min_bars_bypassed:
+                confirmation_type = "EARLY"
+                confirm_ok = True
             elif bars_ok is False:
                 confirmation_type = "BARS"
                 confirm_ok = False
@@ -1368,6 +1402,11 @@ def _build_explain_pullback(signal: Dict[str, Any], blockers: List[str]) -> Opti
             "bars_ok": bars_ok,
             "confirmation_type": confirmation_type,
             "confirm_ok": confirm_ok,
+            "early_confirm_considered": early_confirm_considered,
+            "early_confirm_ok": early_confirm_ok,
+            "early_confirm_reasons": early_confirm_reasons,
+            "min_bars_bypassed": min_bars_bypassed,
+            "effective_confirmation_mode": effective_confirmation_mode,
         }
     
     result = {
@@ -1393,6 +1432,32 @@ def _build_explain_pullback(signal: Dict[str, Any], blockers: List[str]) -> Opti
         "stability_hard": stability_hard,
         "stable_ok": stable_ok,
         "stable_soft_ok": stable_soft_ok,
+        "signal_side": signal.get("pullback_signal_side"),
+        "bars_since_signal": signal.get("pullback_bars_since_signal"),
+        "prev_window_ok": signal.get("pullback_prev_window_ok"),
+        "curr_window_ok": signal.get("pullback_current_dist_ok"),
+        "min_bars_ok": signal.get("pullback_min_bars_ok"),
+        "direction_confirm_ok": signal.get("pullback_direction_confirm_ok"),
+        "body_ok": signal.get("pullback_body_ok"),
+        "persistence_ok": signal.get("pullback_persistence_ok"),
+        "vol_ok": signal.get("pullback_vol_ok", vol_ok),
+        "confirmation_ready": signal.get("pullback_confirmation_ready"),
+        "early_confirm_considered": signal.get("pullback_early_confirm_considered"),
+        "early_confirm_ok": signal.get("pullback_early_confirm_ok"),
+        "early_confirm_reasons": signal.get("pullback_early_confirm_reasons"),
+        "min_bars_bypassed": signal.get("pullback_min_bars_bypassed"),
+        "effective_confirmation_mode": signal.get("pullback_confirmation_mode"),
+        "context_strong": signal.get("pullback_context_strong"),
+        "trend_aligned": signal.get("pullback_trend_aligned"),
+        "trend_strength_ok": signal.get("pullback_trend_strength_ok"),
+        "ema_side_aligned": signal.get("pullback_ema_side_aligned"),
+        "anti_reversal_block": signal.get("pullback_anti_reversal_block"),
+        "lifecycle_state": signal.get("pullback_lifecycle_state"),
+        "invalidation_stage": signal.get("pullback_invalidation_stage"),
+        "pending_entry_status": signal.get("pending_entry_status"),
+        "pending_entry_strategy": signal.get("pending_entry_strategy"),
+        "pending_entry_set_ts": signal.get("pending_entry_set_ts"),
+        "pending_entry_remaining": signal.get("pending_entry_remaining"),
     }
     
     if confirm_explain:
@@ -1507,6 +1572,8 @@ def _build_explain_continuation(signal: Dict[str, Any], blockers: List[str]) -> 
     trend_stable_short = signal.get("trend_stable_short", False)
     trend_strength = signal.get("trend_strength")
     trend_strength_min = settings.get_float("TREND_STRENGTH_MIN")
+    trend_context_ok = signal.get("cont_long_trend_context_ok") if direction == "UP" else signal.get("cont_short_trend_context_ok")
+    ema_side_ok = signal.get("cont_long_ema_side_ok") if direction == "UP" else signal.get("cont_short_ema_side_ok")
     
     candle_body_ratio = signal.get("candle_body_ratio")
     cont_body_min = settings.get_float("CONT_BODY_MIN", 0.50)
@@ -1571,7 +1638,8 @@ def _build_explain_continuation(signal: Dict[str, Any], blockers: List[str]) -> 
         "trend_stable_short": trend_stable_short,
         "trend_strength": trend_strength,
         "trend_strength_min": trend_strength_min,
-        "trend_ok": trend_strength is not None and trend_strength >= trend_strength_min if trend_strength is not None else None,
+        "trend_ok": trend_context_ok,
+        "ema_side_ok": ema_side_ok,
         "candle_body_ratio": candle_body_ratio,
         "cont_body_min": cont_body_min,
         "body_ok": body_ok,
@@ -1582,8 +1650,12 @@ def _build_explain_continuation(signal: Dict[str, Any], blockers: List[str]) -> 
         "cont_atr_ratio_min": cont_atr_ratio_min,
         "atr_ratio_ok": atr_ratio_ok,
         "slope_atr": slope_atr,
+        "slope_delta": signal.get("slope_delta"),
+        "slope_lookback_bars": signal.get("slope_lookback_bars"),
         "cont_slope_atr_min": cont_slope_atr_min,
         "cont_slope_atr_max": cont_slope_atr_max,
+        "cont_slope_threshold": signal.get("cont_slope_threshold"),
+        "cont_slope_state": signal.get("cont_slope_state"),
         "slope_ok": slope_ok,
         "k_overextension": k_overextension,
         "cont_k_max": cont_k_max,
@@ -1594,6 +1666,7 @@ def _build_explain_continuation(signal: Dict[str, Any], blockers: List[str]) -> 
         "rsi_ok": rsi_ok,
         "break_level": break_level,
         "break_delta_atr": break_delta_atr,
+        "close_ltf": close_ltf,
         "break_ok": break_ok,
         "stability_score": stability_score,
         "stability_soft": stability_soft,
@@ -1602,6 +1675,7 @@ def _build_explain_continuation(signal: Dict[str, Any], blockers: List[str]) -> 
         "stable_soft_ok": stable_soft_ok,
         "continuation_confirmation_type": continuation_confirmation_type,
         "confirmation_ok": confirmation_ok,
+        "primary_reject": signal.get("cont_primary_reject"),
         "cont_reject_codes": cont_reject_codes,
     }
 
@@ -1687,6 +1761,8 @@ def _build_explain_anti_reversal(signal: Dict[str, Any]) -> Optional[Dict[str, A
     """
     anti_reversal_block = signal.get("anti_reversal_block")
     anti_reversal_reason = signal.get("anti_reversal_reason")
+    anti_reversal_mode = signal.get("anti_reversal_mode")
+    anti_reversal_active_side = signal.get("anti_reversal_active_side")
     
     # Return explain data if anti-reversal was evaluated:
     # - anti_reversal_block is explicitly set (True or False), OR
@@ -1744,6 +1820,12 @@ def _build_explain_anti_reversal(signal: Dict[str, Any]) -> Optional[Dict[str, A
         "evaluated": True,
         "blocked": blocked,
         "condition_ok": condition_ok,  # condition_ok == (not blocked)
+        "mode": anti_reversal_mode or "legacy",
+        "active_side": anti_reversal_active_side or "NONE",
+        "long_blocked": bool(signal.get("anti_reversal_long_block")),
+        "long_reason": signal.get("anti_reversal_long_reason") or "",
+        "short_blocked": bool(signal.get("anti_reversal_short_block")),
+        "short_reason": signal.get("anti_reversal_short_reason") or "",
         "close_htf": close_htf,
         "ema200_htf": ema200_htf,
         "ema_fast_htf": ema_fast_htf,
@@ -1756,7 +1838,13 @@ def _build_explain_anti_reversal(signal: Dict[str, Any]) -> Optional[Dict[str, A
     return result
 
 
-def _build_explain_main(blockers: List[str], explain_pullback: Optional[Dict[str, Any]], explain_range: Optional[Dict[str, Any]], explain_anti_reversal: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+def _build_explain_main(
+    blockers: List[str],
+    explain_pullback: Optional[Dict[str, Any]],
+    explain_range: Optional[Dict[str, Any]],
+    explain_anti_reversal: Optional[Dict[str, Any]],
+    explain_continuation: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
     """
     Build explain_main summary for decision_clean log.
     Extracts the main blocker with its value, threshold, and pass/fail status.
@@ -1828,6 +1916,15 @@ def _build_explain_main(blockers: List[str], explain_pullback: Optional[Dict[str
                     "th": confirm.get("body_min"),
                     "ok": confirm.get("body_ok"),
                 }
+        elif main_blocker == "P:pullback_bars":
+            confirm = explain_pullback.get("confirm")
+            if confirm:
+                return {
+                    "blocker": main_blocker,
+                    "x": confirm.get("bars_since_signal"),
+                    "th": f"bars>={confirm.get('min_bars')} or early_confirm",
+                    "ok": confirm.get("bars_ok") or confirm.get("early_confirm_ok"),
+                }
     
     if main_blocker.startswith("M:") and explain_range:
         if main_blocker == "M:trend":
@@ -1851,6 +1948,27 @@ def _build_explain_main(blockers: List[str], explain_pullback: Optional[Dict[str
                 "th": explain_range.get("edge_atr_min"),
                 "ok": explain_range.get("edge_ok"),
             }
+
+    if main_blocker.startswith("C:") and explain_continuation:
+        if main_blocker == "C:slope":
+            threshold = (
+                explain_continuation.get("cont_slope_atr_max")
+                if explain_continuation.get("direction") == "DOWN"
+                else explain_continuation.get("cont_slope_atr_min")
+            )
+            return {
+                "blocker": main_blocker,
+                "x": explain_continuation.get("slope_atr"),
+                "th": threshold,
+                "ok": explain_continuation.get("slope_ok"),
+            }
+        if main_blocker == "C:break":
+            return {
+                "blocker": main_blocker,
+                "x": explain_continuation.get("close_ltf"),
+                "th": explain_continuation.get("break_level"),
+                "ok": explain_continuation.get("break_ok"),
+            }
     
     if explain_anti_reversal and "anti_reversal" in main_blocker.lower():
         return {
@@ -1871,6 +1989,10 @@ def _build_explain_main(blockers: List[str], explain_pullback: Optional[Dict[str
 
 def _build_explain_fields(payload: Dict[str, Any], decision: Dict[str, Any]) -> Dict[str, Any]:
     signal = decision.get("signal") or {}
+    predictive = signal.get("predictive") or {}
+    validation = signal.get("validation") or {}
+    execution_profile = signal.get("execution_profile") or {}
+    analytics = signal.get("analytics") or {}
     price_snapshot = payload.get("price_snapshot", {})
     account_state = payload.get("account_state", {})
     risk_policy = payload.get("risk_policy", {})
@@ -1912,6 +2034,8 @@ def _build_explain_fields(payload: Dict[str, Any], decision: Dict[str, Any]) -> 
 
     return {
         "trend": signal.get("trend"),
+        "execution_decision": decision.get("execution_decision"),
+        "entry_mode": decision.get("entry_mode"),
         "direction": signal.get("direction"),
         "regime": signal.get("regime"),
         "regime_detected": signal.get("regime_detected"),
@@ -1922,7 +2046,9 @@ def _build_explain_fields(payload: Dict[str, Any], decision: Dict[str, Any]) -> 
         "selected_strategy": signal.get("selected_strategy"),
         "eligible_strategies": signal.get("eligible_strategies"),
         "strategy_block_reason": signal.get("strategy_block_reason"),
+        "hold_reason_summary": signal.get("hold_reason_summary"),
         "router_debug": signal.get("router_debug"),
+        "regime_explain": signal.get("regime_explain"),
         "stability_score": signal.get("stability_score"),
         "stable_ok": signal.get("stable_ok"),
         "stable_soft": signal.get("stable_soft"),
@@ -1935,7 +2061,16 @@ def _build_explain_fields(payload: Dict[str, Any], decision: Dict[str, Any]) -> 
         "confirmation_metrics": signal.get("confirmation_metrics"),
         "anti_reversal_block": signal.get("anti_reversal_block"),
         "anti_reversal_reason": signal.get("anti_reversal_reason"),
+        "anti_reversal_mode": signal.get("anti_reversal_mode"),
+        "anti_reversal_active_side": signal.get("anti_reversal_active_side"),
+        "anti_reversal_long_block": signal.get("anti_reversal_long_block"),
+        "anti_reversal_long_reason": signal.get("anti_reversal_long_reason"),
+        "anti_reversal_short_block": signal.get("anti_reversal_short_block"),
+        "anti_reversal_short_reason": signal.get("anti_reversal_short_reason"),
         "pending_entry_status": signal.get("pending_entry_status"),
+        "pending_entry_strategy": signal.get("pending_entry_strategy"),
+        "pending_entry_set_ts": signal.get("pending_entry_set_ts"),
+        "pending_entry_remaining": signal.get("pending_entry_remaining"),
         "event_detected": signal.get("event_detected"),
         "event_block": signal.get("event_block"),
         "event_cooldown_remaining": signal.get("event_cooldown_remaining"),
@@ -1950,7 +2085,16 @@ def _build_explain_fields(payload: Dict[str, Any], decision: Dict[str, Any]) -> 
         "volatility_state": signal.get("volatility_state"),
         "cont_short_ok": signal.get("cont_short_ok"),
         "cont_long_ok": signal.get("cont_long_ok"),
+        "cont_short_trend_context_ok": signal.get("cont_short_trend_context_ok"),
+        "cont_long_trend_context_ok": signal.get("cont_long_trend_context_ok"),
+        "cont_short_ema_side_ok": signal.get("cont_short_ema_side_ok"),
+        "cont_long_ema_side_ok": signal.get("cont_long_ema_side_ok"),
+        "cont_primary_reject": signal.get("cont_primary_reject"),
         "slope_atr": signal.get("slope_atr"),
+        "slope_delta": signal.get("slope_delta"),
+        "slope_lookback_bars": signal.get("slope_lookback_bars"),
+        "cont_slope_threshold": signal.get("cont_slope_threshold"),
+        "cont_slope_state": signal.get("cont_slope_state"),
         "k_overextension": signal.get("k_overextension"),
         "break_level": signal.get("break_level"),
         "break_delta_atr": signal.get("break_delta_atr"),
@@ -1991,6 +2135,18 @@ def _build_explain_fields(payload: Dict[str, Any], decision: Dict[str, Any]) -> 
         "consec_lower_close": signal.get("consec_lower_close"),
         "pullback_atr_long": signal.get("pullback_atr_long"),
         "pullback_atr_short": signal.get("pullback_atr_short"),
+        "pullback_signal_side": signal.get("pullback_signal_side"),
+        "pullback_bars_since_signal": signal.get("pullback_bars_since_signal"),
+        "pullback_prev_window_ok": signal.get("pullback_prev_window_ok"),
+        "pullback_current_dist_ok": signal.get("pullback_current_dist_ok"),
+        "pullback_min_bars_ok": signal.get("pullback_min_bars_ok"),
+        "pullback_reclaim_ok": signal.get("pullback_reclaim_ok"),
+        "pullback_direction_confirm_ok": signal.get("pullback_direction_confirm_ok"),
+        "pullback_body_ok": signal.get("pullback_body_ok"),
+        "pullback_persistence_ok": signal.get("pullback_persistence_ok"),
+        "pullback_confirmation_ready": signal.get("pullback_confirmation_ready"),
+        "pullback_lifecycle_state": signal.get("pullback_lifecycle_state"),
+        "pullback_invalidation_stage": signal.get("pullback_invalidation_stage"),
         "reclaim_long": signal.get("reclaim_long"),
         "reclaim_short": signal.get("reclaim_short"),
         "prev_reclaim_long": signal.get("prev_reclaim_long"),
@@ -2043,6 +2199,25 @@ def _build_explain_fields(payload: Dict[str, Any], decision: Dict[str, Any]) -> 
         "donchian_high_20": signal.get("donchian_high_20"),
         "donchian_low_20": signal.get("donchian_low_20"),
         "thresholds": signal.get("thresholds") or {},
+        "predictive_bias": signal.get("predictive_bias") or predictive.get("predictive_bias"),
+        "predictive_state": signal.get("predictive_state") or predictive.get("predictive_state"),
+        "confidence_tier": signal.get("confidence_tier") or predictive.get("confidence_tier"),
+        "trigger_candidates": signal.get("trigger_candidates") or predictive.get("trigger_candidates") or [],
+        "invalidation_reasons": signal.get("invalidation_reasons") or predictive.get("invalidation_reasons") or [],
+        "market_state_prev": signal.get("market_state_prev") or predictive.get("market_state_prev"),
+        "market_state_next": signal.get("market_state_next") or predictive.get("market_state_next"),
+        "transition_name": signal.get("transition_name") or predictive.get("transition_name"),
+        "event_classification": signal.get("event_classification") or predictive.get("event_classification"),
+        "confirmation_quality": signal.get("confirmation_quality") or validation.get("confirmation_quality"),
+        "supporting_strategies": signal.get("supporting_strategies") or validation.get("supporting_strategies") or [],
+        "opposing_strategies": signal.get("opposing_strategies") or validation.get("opposing_strategies") or [],
+        "validator_reject_map": signal.get("validator_reject_map") or validation.get("validator_reject_map") or {},
+        "execution_size_multiplier": signal.get("execution_size_multiplier") or execution_profile.get("size_multiplier"),
+        "event_hard_block": signal.get("event_hard_block") or execution_profile.get("event_hard_block"),
+        "analytics_pending_count": analytics.get("pending_count"),
+        "analytics_label_horizon": analytics.get("label_horizon_candles"),
+        "latest_finalized_label": analytics.get("latest_finalized_label"),
+        "finalized_labels": analytics.get("finalized_labels") or [],
     }
 
 
@@ -2079,6 +2254,8 @@ def _build_decision_log(
         "regime_detected": explain_fields.get("regime_detected"),
         "regime_used_for_routing": explain_fields.get("regime_used_for_routing"),
         "direction": explain_fields.get("direction"),
+        "execution_decision": explain_fields.get("execution_decision"),
+        "entry_mode": explain_fields.get("entry_mode"),
         "trend_strength": explain_fields.get("trend_strength"),
         "trend_stable_long": explain_fields.get("trend_stable_long"),
         "trend_stable_short": explain_fields.get("trend_stable_short"),
@@ -2147,6 +2324,8 @@ def _build_decision_log(
         "selected_strategy": explain_fields.get("selected_strategy"),
         "strategy_block_reason": explain_fields.get("strategy_block_reason"),
         "router_debug": explain_fields.get("router_debug"),
+        "hold_reason_summary": explain_fields.get("hold_reason_summary"),
+        "regime_explain": explain_fields.get("regime_explain"),
         "time_exit_signal": explain_fields.get("time_exit_signal"),
         "time_exit_bars": explain_fields.get("time_exit_bars"),
         "time_exit_progress_atr": explain_fields.get("time_exit_progress_atr"),
@@ -2167,6 +2346,25 @@ def _build_decision_log(
         "reclaim_level_used": explain_fields.get("reclaim_level_used"),
         "effective_tolerance": explain_fields.get("effective_tolerance"),
         "distance_to_reclaim": explain_fields.get("distance_to_reclaim"),
+        "predictive_bias": explain_fields.get("predictive_bias"),
+        "predictive_state": explain_fields.get("predictive_state"),
+        "confidence_tier": explain_fields.get("confidence_tier"),
+        "trigger_candidates": explain_fields.get("trigger_candidates"),
+        "invalidation_reasons": explain_fields.get("invalidation_reasons"),
+        "market_state_prev": explain_fields.get("market_state_prev"),
+        "market_state_next": explain_fields.get("market_state_next"),
+        "transition_name": explain_fields.get("transition_name"),
+        "event_classification": explain_fields.get("event_classification"),
+        "confirmation_quality": explain_fields.get("confirmation_quality"),
+        "supporting_strategies": explain_fields.get("supporting_strategies"),
+        "opposing_strategies": explain_fields.get("opposing_strategies"),
+        "validator_reject_map": explain_fields.get("validator_reject_map"),
+        "execution_size_multiplier": explain_fields.get("execution_size_multiplier"),
+        "event_hard_block": explain_fields.get("event_hard_block"),
+        "analytics_pending_count": explain_fields.get("analytics_pending_count"),
+        "analytics_label_horizon": explain_fields.get("analytics_label_horizon"),
+        "latest_finalized_label": explain_fields.get("latest_finalized_label"),
+        "finalized_labels": explain_fields.get("finalized_labels"),
         "prev_rsi_long": explain_fields.get("prev_rsi_long"),
         "prev_rsi_short": explain_fields.get("prev_rsi_short"),
         "prev_close": explain_fields.get("close_prev_ltf"),
@@ -2185,6 +2383,8 @@ def _build_decision_log(
         log_dict["explain_range"] = explain_fields.get("explain_range")
     if explain_fields.get("explain_anti_reversal"):
         log_dict["explain_anti_reversal"] = explain_fields.get("explain_anti_reversal")
+    if explain_fields.get("explain_continuation"):
+        log_dict["explain_continuation"] = explain_fields.get("explain_continuation")
     return log_dict
 
 

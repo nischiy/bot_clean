@@ -176,23 +176,40 @@ def load_trade_cooldown_state() -> Dict[str, Any]:
 
 def load_decision_state(symbol: str) -> Dict[str, Any]:
     """Load persistent decision state (pending entries, event cooldown)."""
+    default_state = {
+        "symbol": symbol.upper(),
+        "pending_entry": None,
+        "event_cooldown": {"remaining": 0, "last_ts": None},
+        "market_state": "RANGE_BALANCED",
+        "predictive_memory": {},
+        "analytics_queue": [],
+        "last_predictive_bias": "NEUTRAL",
+        "last_transition": "STATE_UNCHANGED",
+    }
     state_file = _state_file(f"decision_state_{symbol.upper()}")
     if not state_file.exists():
-        return {"symbol": symbol.upper(), "pending_entry": None, "event_cooldown": {"remaining": 0, "last_ts": None}}
+        return default_state
     try:
         with open(state_file, "r", encoding="utf-8") as f:
             payload = json.load(f)
             if payload.get("symbol") != symbol.upper():
-                return {"symbol": symbol.upper(), "pending_entry": None, "event_cooldown": {"remaining": 0, "last_ts": None}}
-            return payload
+                return default_state
+            merged = dict(default_state)
+            merged.update(payload)
+            merged["analytics_queue"] = list(payload.get("analytics_queue") or [])
+            merged["predictive_memory"] = dict(payload.get("predictive_memory") or {})
+            return merged
     except Exception:
-        return {"symbol": symbol.upper(), "pending_entry": None, "event_cooldown": {"remaining": 0, "last_ts": None}}
+        return default_state
 
 
 def save_decision_state(symbol: str, state: Dict[str, Any]) -> None:
     """Persist decision state for restart-safe gating."""
     payload = dict(state or {})
     payload["symbol"] = symbol.upper()
+    analytics_queue = list(payload.get("analytics_queue") or [])
+    if len(analytics_queue) > 16:
+        payload["analytics_queue"] = analytics_queue[-16:]
     payload["updated_at"] = datetime.now(timezone.utc).isoformat()
     with open(_state_file(f"decision_state_{symbol.upper()}"), "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)

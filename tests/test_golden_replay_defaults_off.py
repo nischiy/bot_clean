@@ -134,6 +134,9 @@ def _run_golden_replay(monkeypatch) -> list:
     monkeypatch.setenv("RANGE_IN_TREND_ENABLED", "0")
     monkeypatch.setenv("PULLBACK_RECLAIM_TOL_ABS", "0")
     monkeypatch.setenv("REAL_MARKET_TUNING", "0")
+    monkeypatch.setenv("PREDICTIVE_LAYER_ENABLED", "0")
+    monkeypatch.setenv("EARLY_ENTRY_ENABLED", "0")
+    monkeypatch.setenv("EVENT_DIRECTIONAL_TRADING_ENABLED", "0")
     with open(GOLDEN_BARS_PATH) as f:
         bars = json.load(f)
     base = _base_payload()

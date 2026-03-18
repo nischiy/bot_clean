@@ -204,7 +204,10 @@ def test_event_cooldown_blocks_entries():
     payload["features_ltf"]["close_prev"] = 100.0
     decision = de.make_decision(payload)
     assert decision["intent"] == "HOLD"
-    assert "E:event" in decision["reject_reasons"]
+    assert any(str(reason).startswith("E:event") for reason in decision["reject_reasons"])
+    assert str(decision.get("signal", {}).get("global_blocker", "")).startswith("E:event")
+    assert decision.get("signal", {}).get("hold_reason") == "global_blocker_hold"
+    assert decision.get("signal", {}).get("routing_deadlock") is False
 
     state_update = decision.get("state_update") or {}
     payload_next = copy.deepcopy(payload)
@@ -215,6 +218,7 @@ def test_event_cooldown_blocks_entries():
     decision_next = de.make_decision(payload_next, decision_state=state_update)
     assert decision_next["intent"] == "HOLD"
     assert any(r.startswith("E:event_cooldown") for r in decision_next["reject_reasons"])
+    assert str(decision_next.get("signal", {}).get("global_blocker", "")).startswith("E:event_cooldown")
 
 
 def test_pending_entry_idempotent_and_confirmed():

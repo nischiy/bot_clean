@@ -2,9 +2,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "R:compression",
-    "strategy_block_reason": "not_mapped_to_regime",
-    "regime_detected": "COMPRESSION"
+    "main_blocker": "C:slope",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -23,9 +23,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "R:compression",
-    "strategy_block_reason": "not_mapped_to_regime",
-    "regime_detected": "COMPRESSION"
+    "main_blocker": "C:slope",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -42,11 +42,11 @@
     "regime_detected": "COMPRESSION"
   },
   {
-    "decision": "HOLD",
-    "selected_strategy": "NONE",
-    "main_blocker": "R:compression",
-    "strategy_block_reason": "not_mapped_to_regime",
-    "regime_detected": "COMPRESSION"
+    "decision": "LONG",
+    "selected_strategy": "PULLBACK_REENTRY",
+    "main_blocker": null,
+    "strategy_block_reason": null,
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -63,11 +63,11 @@
     "regime_detected": "COMPRESSION"
   },
   {
-    "decision": "HOLD",
-    "selected_strategy": "NONE",
-    "main_blocker": "R:compression",
-    "strategy_block_reason": "not_mapped_to_regime",
-    "regime_detected": "COMPRESSION"
+    "decision": "LONG",
+    "selected_strategy": "PULLBACK_REENTRY",
+    "main_blocker": null,
+    "strategy_block_reason": null,
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -88,7 +88,7 @@
     "selected_strategy": "PULLBACK_REENTRY",
     "main_blocker": null,
     "strategy_block_reason": null,
-    "regime_detected": "RANGE"
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -109,7 +109,7 @@
     "selected_strategy": "PULLBACK_REENTRY",
     "main_blocker": null,
     "strategy_block_reason": null,
-    "regime_detected": "RANGE"
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -130,7 +130,7 @@
     "selected_strategy": "PULLBACK_REENTRY",
     "main_blocker": null,
     "strategy_block_reason": null,
-    "regime_detected": "RANGE"
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -151,7 +151,7 @@
     "selected_strategy": "PULLBACK_REENTRY",
     "main_blocker": null,
     "strategy_block_reason": null,
-    "regime_detected": "RANGE"
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -172,7 +172,7 @@
     "selected_strategy": "PULLBACK_REENTRY",
     "main_blocker": null,
     "strategy_block_reason": null,
-    "regime_detected": "RANGE"
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -193,7 +193,7 @@
     "selected_strategy": "PULLBACK_REENTRY",
     "main_blocker": null,
     "strategy_block_reason": null,
-    "regime_detected": "RANGE"
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -212,9 +212,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -233,9 +233,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -254,9 +254,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -275,9 +275,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -296,9 +296,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:rsi",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -317,9 +317,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:rsi",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -338,9 +338,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:rsi",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -359,9 +359,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "R:compression",
-    "strategy_block_reason": "not_mapped_to_regime",
-    "regime_detected": "COMPRESSION"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -380,9 +380,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "R:compression",
-    "strategy_block_reason": "not_mapped_to_regime",
-    "regime_detected": "COMPRESSION"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -401,9 +401,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "R:compression",
-    "strategy_block_reason": "not_mapped_to_regime",
-    "regime_detected": "COMPRESSION"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -422,9 +422,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "R:compression",
-    "strategy_block_reason": "not_mapped_to_regime",
-    "regime_detected": "COMPRESSION"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -443,9 +443,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -464,9 +464,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -485,9 +485,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -506,9 +506,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -527,9 +527,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -548,9 +548,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -569,9 +569,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:slope",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -590,9 +590,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:slope",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -613,7 +613,7 @@
     "selected_strategy": "PULLBACK_REENTRY",
     "main_blocker": null,
     "strategy_block_reason": null,
-    "regime_detected": "RANGE"
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -634,7 +634,7 @@
     "selected_strategy": "PULLBACK_REENTRY",
     "main_blocker": null,
     "strategy_block_reason": null,
-    "regime_detected": "RANGE"
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -655,7 +655,7 @@
     "selected_strategy": "PULLBACK_REENTRY",
     "main_blocker": null,
     "strategy_block_reason": null,
-    "regime_detected": "RANGE"
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -676,7 +676,7 @@
     "selected_strategy": "PULLBACK_REENTRY",
     "main_blocker": null,
     "strategy_block_reason": null,
-    "regime_detected": "RANGE"
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -697,7 +697,70 @@
     "selected_strategy": "PULLBACK_REENTRY",
     "main_blocker": null,
     "strategy_block_reason": null,
-    "regime_detected": "RANGE"
+    "regime_detected": "TREND_CONTINUATION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "LONG",
+    "selected_strategy": "PULLBACK_REENTRY",
+    "main_blocker": null,
+    "strategy_block_reason": null,
+    "regime_detected": "TREND_CONTINUATION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "LONG",
+    "selected_strategy": "PULLBACK_REENTRY",
+    "main_blocker": null,
+    "strategy_block_reason": null,
+    "regime_detected": "TREND_CONTINUATION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "R:compression",
+    "strategy_block_reason": "not_mapped_to_regime",
+    "regime_detected": "COMPRESSION"
+  },
+  {
+    "decision": "LONG",
+    "selected_strategy": "PULLBACK_REENTRY",
+    "main_blocker": null,
+    "strategy_block_reason": null,
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -716,72 +779,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "R:compression",
-    "strategy_block_reason": "not_mapped_to_regime",
-    "regime_detected": "COMPRESSION"
-  },
-  {
-    "decision": "HOLD",
-    "selected_strategy": "NONE",
-    "main_blocker": "R:compression",
-    "strategy_block_reason": "not_mapped_to_regime",
-    "regime_detected": "COMPRESSION"
-  },
-  {
-    "decision": "HOLD",
-    "selected_strategy": "NONE",
-    "main_blocker": "R:compression",
-    "strategy_block_reason": "not_mapped_to_regime",
-    "regime_detected": "COMPRESSION"
-  },
-  {
-    "decision": "HOLD",
-    "selected_strategy": "NONE",
-    "main_blocker": "R:compression",
-    "strategy_block_reason": "not_mapped_to_regime",
-    "regime_detected": "COMPRESSION"
-  },
-  {
-    "decision": "HOLD",
-    "selected_strategy": "NONE",
-    "main_blocker": "R:compression",
-    "strategy_block_reason": "not_mapped_to_regime",
-    "regime_detected": "COMPRESSION"
-  },
-  {
-    "decision": "HOLD",
-    "selected_strategy": "NONE",
-    "main_blocker": "R:compression",
-    "strategy_block_reason": "not_mapped_to_regime",
-    "regime_detected": "COMPRESSION"
-  },
-  {
-    "decision": "HOLD",
-    "selected_strategy": "NONE",
-    "main_blocker": "R:compression",
-    "strategy_block_reason": "not_mapped_to_regime",
-    "regime_detected": "COMPRESSION"
-  },
-  {
-    "decision": "HOLD",
-    "selected_strategy": "NONE",
-    "main_blocker": "R:compression",
-    "strategy_block_reason": "not_mapped_to_regime",
-    "regime_detected": "COMPRESSION"
-  },
-  {
-    "decision": "HOLD",
-    "selected_strategy": "NONE",
-    "main_blocker": "R:compression",
-    "strategy_block_reason": "not_mapped_to_regime",
-    "regime_detected": "COMPRESSION"
-  },
-  {
-    "decision": "HOLD",
-    "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -800,9 +800,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -821,9 +821,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -842,9 +842,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -863,9 +863,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -884,9 +884,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -905,9 +905,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -926,9 +926,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -947,9 +947,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -968,9 +968,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -989,9 +989,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:rsi",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1010,9 +1010,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:rsi",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1031,9 +1031,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:rsi",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1048,6 +1048,13 @@
     "main_blocker": "M:vol",
     "strategy_block_reason": "gated_by_volume",
     "regime_detected": "RANGE"
+  },
+  {
+    "decision": "HOLD",
+    "selected_strategy": "NONE",
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1066,9 +1073,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "R:compression",
-    "strategy_block_reason": "not_mapped_to_regime",
-    "regime_detected": "COMPRESSION"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1087,9 +1094,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "R:compression",
-    "strategy_block_reason": "not_mapped_to_regime",
-    "regime_detected": "COMPRESSION"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1108,16 +1115,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "R:compression",
-    "strategy_block_reason": "not_mapped_to_regime",
-    "regime_detected": "COMPRESSION"
-  },
-  {
-    "decision": "HOLD",
-    "selected_strategy": "NONE",
-    "main_blocker": "R:compression",
-    "strategy_block_reason": "not_mapped_to_regime",
-    "regime_detected": "COMPRESSION"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1136,9 +1136,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:slope",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1159,7 +1159,7 @@
     "selected_strategy": "PULLBACK_REENTRY",
     "main_blocker": null,
     "strategy_block_reason": null,
-    "regime_detected": "RANGE"
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1180,7 +1180,7 @@
     "selected_strategy": "PULLBACK_REENTRY",
     "main_blocker": null,
     "strategy_block_reason": null,
-    "regime_detected": "RANGE"
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1201,7 +1201,7 @@
     "selected_strategy": "PULLBACK_REENTRY",
     "main_blocker": null,
     "strategy_block_reason": null,
-    "regime_detected": "RANGE"
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1222,7 +1222,7 @@
     "selected_strategy": "PULLBACK_REENTRY",
     "main_blocker": null,
     "strategy_block_reason": null,
-    "regime_detected": "RANGE"
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1243,7 +1243,7 @@
     "selected_strategy": "PULLBACK_REENTRY",
     "main_blocker": null,
     "strategy_block_reason": null,
-    "regime_detected": "RANGE"
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1264,7 +1264,7 @@
     "selected_strategy": "PULLBACK_REENTRY",
     "main_blocker": null,
     "strategy_block_reason": null,
-    "regime_detected": "RANGE"
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1285,7 +1285,7 @@
     "selected_strategy": "PULLBACK_REENTRY",
     "main_blocker": null,
     "strategy_block_reason": null,
-    "regime_detected": "RANGE"
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1306,7 +1306,7 @@
     "selected_strategy": "PULLBACK_REENTRY",
     "main_blocker": null,
     "strategy_block_reason": null,
-    "regime_detected": "RANGE"
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1327,7 +1327,7 @@
     "selected_strategy": "PULLBACK_REENTRY",
     "main_blocker": null,
     "strategy_block_reason": null,
-    "regime_detected": "RANGE"
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1348,7 +1348,7 @@
     "selected_strategy": "PULLBACK_REENTRY",
     "main_blocker": null,
     "strategy_block_reason": null,
-    "regime_detected": "RANGE"
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1367,9 +1367,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:rsi",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1388,9 +1388,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:rsi",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1409,9 +1409,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "R:compression",
-    "strategy_block_reason": "not_mapped_to_regime",
-    "regime_detected": "COMPRESSION"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1430,9 +1430,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "R:compression",
-    "strategy_block_reason": "not_mapped_to_regime",
-    "regime_detected": "COMPRESSION"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1451,9 +1451,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "R:compression",
-    "strategy_block_reason": "not_mapped_to_regime",
-    "regime_detected": "COMPRESSION"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1472,9 +1472,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "R:compression",
-    "strategy_block_reason": "not_mapped_to_regime",
-    "regime_detected": "COMPRESSION"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1493,9 +1493,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1514,9 +1514,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1535,9 +1535,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1556,9 +1556,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1577,9 +1577,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1598,9 +1598,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1619,9 +1619,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1640,9 +1640,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1661,9 +1661,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:break",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1682,9 +1682,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:slope",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1703,9 +1703,9 @@
   {
     "decision": "HOLD",
     "selected_strategy": "NONE",
-    "main_blocker": "M:trend",
-    "strategy_block_reason": "gated_by_trend",
-    "regime_detected": "RANGE"
+    "main_blocker": "C:slope",
+    "strategy_block_reason": "gated_by_conditions",
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1726,7 +1726,7 @@
     "selected_strategy": "PULLBACK_REENTRY",
     "main_blocker": null,
     "strategy_block_reason": null,
-    "regime_detected": "RANGE"
+    "regime_detected": "TREND_CONTINUATION"
   },
   {
     "decision": "HOLD",
@@ -1747,6 +1747,6 @@
     "selected_strategy": "PULLBACK_REENTRY",
     "main_blocker": null,
     "strategy_block_reason": null,
-    "regime_detected": "RANGE"
+    "regime_detected": "TREND_CONTINUATION"
   }
 ]

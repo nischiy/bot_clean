@@ -59,6 +59,29 @@ pip install -r requirements.txt
   - Valid values: `BREAKOUT_EXPANSION`, `SQUEEZE_BREAK`, `TREND_ACCEL`, `TREND_CONTINUATION`, `PULLBACK`, `RANGE`, `COMPRESSION`, `EVENT`
   - Checked in `decision_engine.py:1455` — only allowed if `get_runtime_settings().is_test or is_offline or is_replay or env != "production"`
 
+## Predictive-first controls
+
+- `PREDICTIVE_LAYER_ENABLED` (bool, default: `1`) — enables the Stage 1 predictive inference layer
+- `EARLY_ENTRY_ENABLED` (bool, default: `1`) — allows `OPEN_*_EARLY` execution decisions when predictive quality is sufficient
+- `EVENT_DIRECTIONAL_TRADING_ENABLED` (bool, default: `1`) — allows directional-event early entries while still blocking chaotic events
+- `EARLY_ENTRY_SIZE_MULTIPLIER` (float, default: `0.50`) — size reduction applied by the risk manager for early entries
+- `EARLY_ENTRY_FALLBACK_SL_ATR` (float, default: `0.90`) — fallback SL distance when no structural invalidation level is available
+- `PREDICTIVE_EARLY_RR_TARGET` (float, default: `1.60`) — RR target used for early-entry synthetic plans
+- `PREDICTIVE_INVALIDATION_BUFFER_ATR` (float, default: `0.15`) — ATR buffer added around structural invalidation levels
+- `PREDICTIVE_LABEL_HORIZON_CANDLES` (int, default: `6`) — analytics look-ahead horizon for realized-move labeling
+
+## Predictive structure thresholds
+
+- `PREDICTIVE_CLOSE_POS_STRONG_HIGH` (float, default: `0.75`) — close-location threshold for strong bullish acceptance
+- `PREDICTIVE_CLOSE_POS_STRONG_LOW` (float, default: `0.25`) — close-location threshold for strong bearish acceptance
+- `PREDICTIVE_BODY_DOMINANCE_MIN` (float, default: `0.55`) — minimum body dominance for predictive directional acceptance
+- `PREDICTIVE_VOLUME_EXPANSION_MIN` (float, default: `1.20`) — minimum volume ratio for predictive acceptance bundles
+- `PREDICTIVE_SLOPE_TRIGGER_ATR` (float, default: `0.10`) — normalized slope threshold used for failure-transition detection
+- `PREDICTIVE_DIST_RECLAIM_WIDEN_MIN` (float, default: `0.20`) — minimum widening in ATR distance-to-reclaim to mark deterioration
+- `PREDICTIVE_OVEREXTENSION_HOLD_ATR` (float, default: `2.20`) — dist50 threshold above which predictive execution holds as late
+- `PREDICTIVE_EVENT_BODY_MIN` (float, default: `0.65`) — minimum body dominance for directional-event classification
+- `PREDICTIVE_EVENT_VOLUME_MIN` (float, default: `1.80`) — minimum volume ratio for directional-event classification
+
 ## Exchange endpoints and modules
 
 - `EXCHANGE` (str, default: `binance_futures`)

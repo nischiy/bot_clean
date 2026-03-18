@@ -35,6 +35,31 @@
         }
       }
     },
+    "execution_decision": {
+      "type": "string",
+      "enum": [
+        "HOLD",
+        "OPEN_LONG_EARLY",
+        "OPEN_LONG_CONFIRMED",
+        "OPEN_SHORT_EARLY",
+        "OPEN_SHORT_CONFIRMED",
+        "HOLD_LATE",
+        "HOLD_EVENT",
+        "HOLD_LOW_QUALITY",
+        "CLOSE",
+        "UPDATE_SLTP"
+      ]
+    },
+    "entry_mode": {
+      "type": "string",
+      "enum": ["NONE", "EARLY", "CONFIRMED"]
+    },
+    "signal": {
+      "type": "object"
+    },
+    "state_update": {
+      "type": "object"
+    },
     "move_sl_to_be_after_tp1": {
       "type": "boolean"
     },

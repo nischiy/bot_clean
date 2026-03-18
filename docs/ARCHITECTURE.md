@@ -2,6 +2,23 @@
 
 ## Production-Grade Architecture Overview
 
+## Predictive-First Decision Architecture
+
+The decision engine now runs as a deterministic 3-stage pipeline:
+
+1. `Stage 1: Predictive inference`
+   - `app.strategy.predictive_engine.infer_predictive_layer()`
+   - infers `predictive_bias`, `predictive_state`, `confidence_tier`, named triggers, invalidations, and an explicit market-state transition before any legacy strategy is selected.
+   - persists restart-safe state in `decision_state_{SYMBOL}.json` via `market_state`, `predictive_memory`, `last_predictive_bias`, and `last_transition`.
+2. `Stage 2: Legacy strategy validation`
+   - existing strategies remain intact: `PULLBACK_REENTRY`, `CONTINUATION`, `TREND_ACCEL`, `BREAKOUT_EXPANSION`, `SQUEEZE_BREAK`, `RANGE_MEANREV`.
+   - they now act as validators, confidence amplifiers, and analytics labels rather than the only source of directional intent.
+3. `Stage 3: Execution decision`
+   - maps predictive inference + legacy validation into `OPEN_LONG_EARLY`, `OPEN_LONG_CONFIRMED`, `OPEN_SHORT_EARLY`, `OPEN_SHORT_CONFIRMED`, `HOLD_LATE`, `HOLD_EVENT`, `HOLD_LOW_QUALITY`, or `HOLD`.
+   - keeps legacy `intent` compatibility for the runtime and risk manager.
+
+Risk management remains the final authority. Predictive logic never bypasses kill-switches, spread checks, stale-data guards, cooldowns, drawdown controls, reconciliation, or sizing limits.
+
 The system enforces strict JSON contracts between modules with fail-closed validation:
 
 1. **payload.json** → Market data, account state, features, risk policy
@@ -95,7 +112,31 @@ Runtime ordering per tick (strict, enforced in `app.run._run_once_contracts`):
 - **Output:** `decision.json` (validated against `app/core/schemas/decision.schema.json`)
 - **Authority:** INTENT ONLY - no execution authority
 - **Deterministic:** Yes (given same payload and state)
-- **Side effects:** Updates decision state (pending entries, cooldowns, event timestamps) via `state_update` field
+- **Side effects:** Updates decision state (pending entries, cooldowns, predictive state machine, analytics queue) via `state_update` field
+
+**Predictive layer outputs:**
+- `predictive_bias`: `LONG|SHORT|NEUTRAL`
+- `predictive_state`: `EARLY_LONG|EARLY_SHORT|LONG_FAILURE|SHORT_FAILURE|BREAKDOWN_RISK|BREAKOUT_RISK|EVENT_DIRECTIONAL|CHOP|NEUTRAL`
+- `confidence_tier`: `LOW|MEDIUM|HIGH`
+- `market_state_prev`, `market_state_next`, `transition_name`
+- `trigger_candidates`, `invalidation_reasons`
+- `execution_decision`, `entry_mode`
+
+**Predictive state machine:**
+- directional health and pullback states:
+  - `UPTREND_HEALTHY`, `PULLBACK_ACTIVE`, `RECLAIM_PENDING`, `RECLAIM_FAILED`, `BEARISH_TRANSITION`, `BREAKDOWN_CONFIRMED`
+  - `DOWNTREND_HEALTHY`, `SHORT_PULLBACK_ACTIVE`, `SHORT_RECLAIM_PENDING`, `SHORT_RECLAIM_FAILED`, `BULLISH_TRANSITION`, `BREAKOUT_CONFIRMED`
+- neutral/event states:
+  - `RANGE_BALANCED`, `EVENT_DIRECTIONAL`, `EVENT_CHAOTIC`
+
+**Execution modes:**
+- `EARLY` entries use reduced size and predictive invalidation-based SL placement.
+- `CONFIRMED` entries use the normal legacy strategy sizing/risk profile.
+- both are still subject to the same risk-manager veto path.
+
+**Analytics labels:**
+- `app.strategy.analytics_labels.update_analytics_labels()` keeps a restart-safe rolling queue and finalizes labels after `PREDICTIVE_LABEL_HORIZON_CANDLES`.
+- logs realized move labels, early-signal correctness, confirmed-signal lateness, event-block misses, reclaim-conversion misses, and other missed-opportunity telemetry.
 
 **Regime Detection (5m, deterministic, exclusive, top-down, from `_detect_regime` in `decision_engine.py:310-383`):**
 1. **EVENT** → if `event_detected=True` (true_range >= EVENT_TR_ATR * atr14) → **BLOCKS** entries (routes to "NONE" strategy)

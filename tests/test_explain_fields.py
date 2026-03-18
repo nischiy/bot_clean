@@ -8,6 +8,7 @@ import pytest
 from app.run import (
     _build_explain_pullback,
     _build_explain_range,
+    _build_explain_continuation,
     _build_explain_anti_reversal,
     _build_explain_main,
 )
@@ -34,14 +35,14 @@ def test_explain_pullback_with_dist50_blocker():
     assert explain is not None
     assert explain["dist50_prev"] == 0.8
     assert explain["dist50_curr"] == 0.5
-    assert explain["dist50_min"] == 0.3  # PULLBACK_REENTRY_DIST50_MIN
+    assert explain["dist50_min"] == 0.25  # PULLBACK_REENTRY_DIST50_MIN
     assert explain["dist50_max"] == 1.5  # PULLBACK_REENTRY_DIST50_MAX
     assert explain["dist50_prev_ok"] is True  # 0.8 is within [0.3, 1.5]
     assert explain["dist50_curr_ok"] is True  # 0.5 <= 1.5
     assert explain["reclaim_required"] == "long"
     assert explain["reclaim_ok"] is True
     assert explain["volume_ratio"] == 1.2
-    assert explain["vol_min"] == 1.0  # PULLBACK_REENTRY_VOL_MIN
+    assert explain["vol_min"] == 0.55  # PULLBACK_REENTRY_VOL_MIN
     assert explain["vol_ok"] is True  # 1.2 >= 1.0
     assert explain["stability_score"] == 0.75
     assert explain["stable_ok"] is True  # 0.75 >= 0.70 (STABILITY_HARD)
@@ -58,7 +59,7 @@ def test_explain_pullback_with_vol_blocker():
         "ema50_ltf": 50100.0,
         "reclaim_long": False,
         "reclaim_short": True,
-        "volume_ratio": 0.8,  # Below minimum
+        "volume_ratio": 0.5,  # Below minimum
         "stability_score": 0.65,
     }
     blockers = ["P:vol"]
@@ -66,7 +67,7 @@ def test_explain_pullback_with_vol_blocker():
     explain = _build_explain_pullback(signal, blockers)
     
     assert explain is not None
-    assert explain["vol_ok"] is False  # 0.8 < 1.0
+    assert explain["vol_ok"] is False  # 0.5 < 0.55
     assert explain["reclaim_required"] == "short"
     assert explain["reclaim_ok"] is True
 
@@ -118,7 +119,7 @@ def test_explain_pullback_with_confirm_blocker():
         "reclaim_long": True,
         "volume_ratio": 1.2,
         "stability_score": 0.75,
-        "candle_body_ratio": 0.4,  # Below minimum
+        "candle_body_ratio": 0.35,  # Below minimum
         "consec_below_ema50_prev": 3,
     }
     blockers = ["P:confirm"]
@@ -128,9 +129,9 @@ def test_explain_pullback_with_confirm_blocker():
     assert explain is not None
     assert "confirm" in explain
     confirm = explain["confirm"]
-    assert confirm["body_ratio"] == 0.4
-    assert confirm["body_min"] == 0.5  # PULLBACK_REENTRY_CONFIRM_BODY_MIN
-    assert confirm["body_ok"] is False  # 0.4 < 0.5
+    assert confirm["body_ratio"] == 0.35
+    assert confirm["body_min"] == 0.4  # PULLBACK_REENTRY_CONFIRM_BODY_MIN
+    assert confirm["body_ok"] is False  # 0.35 < 0.4
     assert confirm["min_bars"] == 2  # PULLBACK_REENTRY_MIN_BARS
     assert confirm["bars_since_signal"] == 3  # consec_below_ema50_prev for up trend
     assert confirm["bars_ok"] is True  # 3 >= 2
@@ -165,6 +166,178 @@ def test_explain_pullback_confirm_passes():
     assert confirm["bars_ok"] is True  # 3 >= 2
     assert confirm["confirmation_type"] == "OK"
     assert confirm["confirm_ok"] is True
+
+
+def test_explain_pullback_early_confirm_fields():
+    signal = {
+        "regime_detected": "PULLBACK",
+        "dist50": 0.4,
+        "dist50_prev": 0.6,
+        "trend": "up",
+        "close_ltf": 50000.0,
+        "close_prev_ltf": 49900.0,
+        "ema50_ltf": 49900.0,
+        "reclaim_long": True,
+        "volume_ratio": 1.2,
+        "stability_score": 0.75,
+        "candle_body_ratio": 0.6,
+        "consec_below_ema50_prev": 0,
+        "pullback_signal_side": "LONG",
+        "pullback_bars_since_signal": 0,
+        "pullback_prev_window_ok": True,
+        "pullback_current_dist_ok": True,
+        "pullback_min_bars_ok": False,
+        "pullback_reclaim_ok": True,
+        "pullback_direction_confirm_ok": True,
+        "pullback_body_ok": True,
+        "pullback_persistence_ok": True,
+        "pullback_vol_ok": True,
+        "pullback_confirmation_ready": True,
+        "pullback_early_confirm_considered": True,
+        "pullback_early_confirm_ok": True,
+        "pullback_early_confirm_reasons": [],
+        "pullback_min_bars_bypassed": True,
+        "pullback_confirmation_mode": "early",
+        "pullback_context_strong": True,
+        "pullback_trend_aligned": True,
+        "pullback_trend_strength_ok": True,
+        "pullback_ema_side_aligned": True,
+        "pullback_anti_reversal_block": False,
+        "pullback_lifecycle_state": "ready",
+        "pullback_invalidation_stage": "active",
+    }
+    explain = _build_explain_pullback(signal, [])
+
+    assert explain is not None
+    assert explain["early_confirm_considered"] is True
+    assert explain["early_confirm_ok"] is True
+    assert explain["min_bars_bypassed"] is True
+    assert explain["effective_confirmation_mode"] == "early"
+    assert explain["anti_reversal_block"] is False
+    confirm = explain["confirm"]
+    assert confirm["confirmation_type"] == "EARLY"
+    assert confirm["early_confirm_ok"] is True
+    assert confirm["min_bars_bypassed"] is True
+
+
+def test_explain_pullback_early_confirm_failure_priority():
+    signal = {
+        "regime_detected": "PULLBACK",
+        "dist50": 0.4,
+        "dist50_prev": 0.6,
+        "trend": "up",
+        "close_ltf": 50000.0,
+        "close_prev_ltf": 50010.0,
+        "ema50_ltf": 49900.0,
+        "reclaim_long": False,
+        "volume_ratio": 1.2,
+        "stability_score": 0.75,
+        "candle_body_ratio": 0.6,
+        "consec_below_ema50_prev": 0,
+        "pullback_signal_side": "LONG",
+        "pullback_bars_since_signal": 0,
+        "pullback_prev_window_ok": True,
+        "pullback_current_dist_ok": True,
+        "pullback_min_bars_ok": False,
+        "pullback_reclaim_ok": False,
+        "pullback_direction_confirm_ok": False,
+        "pullback_body_ok": True,
+        "pullback_persistence_ok": True,
+        "pullback_vol_ok": True,
+        "pullback_confirmation_ready": False,
+        "pullback_early_confirm_considered": True,
+        "pullback_early_confirm_ok": False,
+        "pullback_early_confirm_reasons": ["reclaim", "confirm"],
+        "pullback_min_bars_bypassed": False,
+        "pullback_confirmation_mode": "waiting",
+        "pullback_context_strong": True,
+        "pullback_trend_aligned": True,
+        "pullback_trend_strength_ok": True,
+        "pullback_ema_side_aligned": True,
+        "pullback_anti_reversal_block": False,
+        "pullback_lifecycle_state": "awaiting_reclaim",
+        "pullback_invalidation_stage": "before_reclaim",
+    }
+    explain = _build_explain_pullback(signal, ["P:reclaim", "P:confirm", "P:pullback_bars"])
+    explain_main = _build_explain_main(["P:reclaim", "P:confirm", "P:pullback_bars"], explain, None, None)
+
+    assert explain is not None
+    assert explain["early_confirm_ok"] is False
+    assert explain["early_confirm_reasons"] == ["reclaim", "confirm"]
+    assert explain_main["blocker"] == "P:reclaim"
+    assert explain_main["ok"] is False
+
+
+def test_explain_pullback_lifecycle_diagnostics_present():
+    signal = {
+        "regime_detected": "PULLBACK",
+        "dist50": 2.0,
+        "dist50_prev": 0.8,
+        "trend": "up",
+        "close_ltf": 800.0,
+        "close_prev_ltf": 900.0,
+        "ema50_ltf": 1000.0,
+        "reclaim_long": False,
+        "reclaim_short": False,
+        "volume_ratio": 1.2,
+        "stability_score": 0.75,
+        "pullback_signal_side": "LONG",
+        "pullback_bars_since_signal": 3,
+        "pullback_prev_window_ok": True,
+        "pullback_current_dist_ok": False,
+        "pullback_min_bars_ok": True,
+        "pullback_reclaim_ok": False,
+        "pullback_direction_confirm_ok": False,
+        "pullback_body_ok": True,
+        "pullback_persistence_ok": False,
+        "pullback_confirmation_ready": False,
+        "pullback_lifecycle_state": "invalidated_dist50",
+        "pullback_invalidation_stage": "before_reclaim",
+    }
+    explain = _build_explain_pullback(signal, ["P:dist50"])
+
+    assert explain is not None
+    assert explain["signal_side"] == "LONG"
+    assert explain["bars_since_signal"] == 3
+    assert explain["prev_window_ok"] is True
+    assert explain["curr_window_ok"] is False
+    assert explain["lifecycle_state"] == "invalidated_dist50"
+    assert explain["invalidation_stage"] == "before_reclaim"
+
+
+def test_explain_continuation_alignment_with_primary_reject():
+    signal = {
+        "regime_detected": "TREND_CONTINUATION",
+        "direction": "DOWN",
+        "cont_long_ok": False,
+        "cont_short_ok": False,
+        "cont_reject_codes": ["C:slope", "C:break"],
+        "cont_primary_reject": "C:slope",
+        "trend_stable_long": False,
+        "trend_stable_short": True,
+        "trend_strength": 3.57,
+        "cont_short_trend_context_ok": True,
+        "cont_long_trend_context_ok": False,
+        "cont_short_ema_side_ok": True,
+        "cont_long_ema_side_ok": False,
+        "candle_body_ratio": 0.6,
+        "volume_ratio": 1.1,
+        "atr_ratio": 1.0,
+        "slope_atr": 0.1,
+        "k_overextension": 1.0,
+        "rsi14_ltf": 45.0,
+        "break_level": 95.0,
+        "close_ltf": 98.0,
+        "stability_score": 0.8,
+        "continuation_confirmation_type": "TWO_BAR_CONTINUATION",
+    }
+    explain = _build_explain_continuation(signal, ["C:slope"])
+
+    assert explain is not None
+    assert explain["trend_ok"] is True
+    assert explain["ema_side_ok"] is True
+    assert explain["slope_ok"] is False
+    assert explain["primary_reject"] == "C:slope"
 
 
 def test_explain_range_with_vol_blocker():
@@ -279,6 +452,31 @@ def test_explain_anti_reversal_when_blocked():
     assert explain["ema200_htf"] == 50000.0
     assert explain["ema_fast_htf"] == 50500.0
     assert explain["htf_reclaim_level"] == 50500.0
+
+
+def test_explain_anti_reversal_exposes_side_specific_semantics():
+    signal = {
+        "anti_reversal_block": True,
+        "anti_reversal_reason": "HTF_EMA_RECLAIM",
+        "anti_reversal_mode": "side_specific_entry_gate",
+        "anti_reversal_active_side": "LONG",
+        "anti_reversal_long_block": True,
+        "anti_reversal_long_reason": "HTF_EMA_RECLAIM",
+        "anti_reversal_short_block": False,
+        "anti_reversal_short_reason": "",
+        "close_htf": 50000.0,
+        "ema200_htf": 49000.0,
+        "ema_fast_htf": 50500.0,
+        "direction": "UP",
+    }
+
+    explain = _build_explain_anti_reversal(signal)
+
+    assert explain is not None
+    assert explain["mode"] == "side_specific_entry_gate"
+    assert explain["active_side"] == "LONG"
+    assert explain["long_blocked"] is True
+    assert explain["short_blocked"] is False
 
 
 def test_explain_anti_reversal_when_not_blocked():

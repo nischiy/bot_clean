@@ -248,6 +248,18 @@ def create_trade_plan(
         if adaptive_enabled and decision.get("signal", {}).get("adaptive_soft_stability"):
             qty = round_to_step(float(qty) * 0.7, step_size)
             qty = max(qty, min_qty) if min_qty and qty is not None else qty
+        execution_profile = decision.get("signal", {}).get("execution_profile", {})
+        execution_decision = str(decision.get("execution_decision") or execution_profile.get("execution_decision") or "")
+        if execution_decision.endswith("_EARLY"):
+            size_multiplier = float(
+                execution_profile.get(
+                    "size_multiplier",
+                    settings.get_float("EARLY_ENTRY_SIZE_MULTIPLIER", 0.50),
+                )
+            )
+            qty = round_to_step(float(qty) * size_multiplier, step_size)
+            if min_qty and qty is not None:
+                qty = max(qty, min_qty)
     else:
         pos_state = payload.get("position_state", {})
         pos_side = pos_state.get("side")
@@ -363,6 +375,10 @@ def create_trade_plan(
                 "margin_type": account_state.get("margin_type", "isolated"),
                 "timestamp": int(ts)
             }
+        trade_plan["decision_meta"] = {
+            "execution_decision": decision.get("execution_decision"),
+            "entry_mode": decision.get("entry_mode"),
+        }
     else:
         close_side = "SELL" if payload.get("position_state", {}).get("side") == "LONG" else "BUY"
         trade_plan = {
