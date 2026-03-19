@@ -36,6 +36,14 @@ def _safe_float(value: Any, default: Optional[float] = None) -> Optional[float]:
         return default
 
 
+def _add_missing_field(missing_fields: List[str], field_name: str, value: Any) -> None:
+    """Track fields that are semantically missing in the payload."""
+    if value is not None:
+        return
+    if field_name not in missing_fields:
+        missing_fields.append(field_name)
+
+
 def _compute_donchian(df: pd.DataFrame, period: int = 20) -> Tuple[Optional[float], Optional[float]]:
     """Compute Donchian channels."""
     if df is None or df.empty or len(df) < period:
@@ -388,6 +396,7 @@ def build_payload(
         - If payload is not None, it should be validated before use
     """
     errors = []
+    missing_fields: List[str] = []
     
     # Market identity
     market_identity = {
@@ -606,58 +615,106 @@ def build_payload(
     donchian_high_k, donchian_low_k = _compute_donchian(df_ltf, confirm_donchian_k)
 
     if close_ltf is None:
-        errors.append("missing_close_ltf")
+        _add_missing_field(missing_fields, "features_ltf.close", close_ltf)
     if close_prev is None and close_ltf is not None:
         close_prev = close_ltf
     if rsi14_prev is None and rsi14 is not None:
         rsi14_prev = rsi14
 
+    ltf_missing_map = {
+        "features_ltf.open": open_ltf,
+        "features_ltf.open_prev": open_prev,
+        "features_ltf.close": close_ltf,
+        "features_ltf.close_prev": close_prev,
+        "features_ltf.high": high_ltf,
+        "features_ltf.low": low_ltf,
+        "features_ltf.high_prev": high_prev,
+        "features_ltf.low_prev": low_prev,
+        "features_ltf.ema50": ema50_ltf,
+        "features_ltf.ema50_prev_12": ema50_prev_12,
+        "features_ltf.ema120": ema120_ltf,
+        "features_ltf.donchian_high_240": donchian_high,
+        "features_ltf.donchian_low_240": donchian_low,
+        "features_ltf.donchian_high_20": donchian_high_20,
+        "features_ltf.donchian_low_20": donchian_low_20,
+        "features_ltf.donchian_high_k": donchian_high_k,
+        "features_ltf.donchian_low_k": donchian_low_k,
+        "features_ltf.consec_close_above_donchian_20": consec_close_above_donchian_20,
+        "features_ltf.consec_close_below_donchian_20": consec_close_below_donchian_20,
+        "features_ltf.atr14": atr14,
+        "features_ltf.atr14_sma20": atr14_sma20,
+        "features_ltf.bb_upper": bb_upper,
+        "features_ltf.bb_lower": bb_lower,
+        "features_ltf.bb_mid": bb_mid,
+        "features_ltf.bb_width": bb_width,
+        "features_ltf.bb_width_prev": bb_width_prev,
+        "features_ltf.volume_ratio": volume_ratio,
+        "features_ltf.volume": volume_ltf,
+        "features_ltf.volume_prev": volume_prev,
+        "features_ltf.candle_body_ratio": candle_body_ratio,
+        "features_ltf.rsi14": rsi14,
+        "features_ltf.rsi14_prev": rsi14_prev,
+        "features_ltf.consec_above_ema50": consec_above_ema50,
+        "features_ltf.consec_below_ema50": consec_below_ema50,
+        "features_ltf.consec_above_ema50_prev": consec_above_ema50_prev,
+        "features_ltf.consec_below_ema50_prev": consec_below_ema50_prev,
+        "features_ltf.close_max_n": close_max_n,
+        "features_ltf.close_min_n": close_min_n,
+        "features_ltf.trend_candles_below_ema50": trend_candles_below_ema50,
+        "features_ltf.trend_candles_above_ema50": trend_candles_above_ema50,
+        "features_ltf.wick_ratio_count": wick_ratio_count,
+        "features_ltf.swing_high_m": swing_high_m,
+        "features_ltf.swing_low_m": swing_low_m,
+    }
+    for field_name, value in ltf_missing_map.items():
+        _add_missing_field(missing_fields, field_name, value)
+
     features_ltf = {
-        "open": open_ltf if open_ltf is not None else -1.0,
-        "open_prev": open_prev if open_prev is not None else -1.0,
-        "close": close_ltf if close_ltf is not None else -1.0,
-        "close_prev": close_prev if close_prev is not None else -1.0,
-        "high": high_ltf if high_ltf is not None else -1.0,
-        "low": low_ltf if low_ltf is not None else -1.0,
-        "high_prev": high_prev if high_prev is not None else -1.0,
-        "low_prev": low_prev if low_prev is not None else -1.0,
-        "ema50": ema50_ltf if ema50_ltf is not None else -1.0,
-        "ema50_prev_12": ema50_prev_12 if ema50_prev_12 is not None else -1.0,
-        "ema120": ema120_ltf if ema120_ltf is not None else -1.0,
-        "donchian_high_240": donchian_high if donchian_high is not None else -1.0,
-        "donchian_low_240": donchian_low if donchian_low is not None else -1.0,
-        "donchian_high_20": donchian_high_20 if donchian_high_20 is not None else -1.0,
-        "donchian_low_20": donchian_low_20 if donchian_low_20 is not None else -1.0,
-        "donchian_high_k": donchian_high_k if donchian_high_k is not None else -1.0,
-        "donchian_low_k": donchian_low_k if donchian_low_k is not None else -1.0,
-        "consec_close_above_donchian_20": consec_close_above_donchian_20 if consec_close_above_donchian_20 is not None else -1.0,
-        "consec_close_below_donchian_20": consec_close_below_donchian_20 if consec_close_below_donchian_20 is not None else -1.0,
-        "atr14": atr14 if atr14 is not None else -1.0,
-        "atr14_sma20": atr14_sma20 if atr14_sma20 is not None else -1.0,
-        "bb_upper": bb_upper if bb_upper is not None else -1.0,
-        "bb_lower": bb_lower if bb_lower is not None else -1.0,
-        "bb_mid": bb_mid if bb_mid is not None else -1.0,
-        "bb_width": bb_width if bb_width is not None else -1.0,
-        "bb_width_prev": bb_width_prev if bb_width_prev is not None else -1.0,
-        "volume_ratio": volume_ratio if volume_ratio is not None else -1.0,
-        "volume": volume_ltf if volume_ltf is not None else -1.0,
-        "volume_prev": volume_prev if volume_prev is not None else -1.0,
-        "candle_body_ratio": candle_body_ratio if candle_body_ratio is not None else -1.0,
-        "rsi14": rsi14 if rsi14 is not None else -1.0,
-        "rsi14_prev": rsi14_prev if rsi14_prev is not None else -1.0,
-        "consec_above_ema50": consec_above_ema50 if consec_above_ema50 is not None else -1.0,
-        "consec_below_ema50": consec_below_ema50 if consec_below_ema50 is not None else -1.0,
-        "consec_above_ema50_prev": consec_above_ema50_prev if consec_above_ema50_prev is not None else -1.0,
-        "consec_below_ema50_prev": consec_below_ema50_prev if consec_below_ema50_prev is not None else -1.0,
-        "close_max_n": close_max_n if close_max_n is not None else -1.0,
-        "close_min_n": close_min_n if close_min_n is not None else -1.0,
+        "open": open_ltf,
+        "open_prev": open_prev,
+        "close": close_ltf,
+        "close_prev": close_prev,
+        "high": high_ltf,
+        "low": low_ltf,
+        "high_prev": high_prev,
+        "low_prev": low_prev,
+        "ema50": ema50_ltf,
+        "ema50_prev_12": ema50_prev_12,
+        "ema120": ema120_ltf,
+        "donchian_high_240": donchian_high,
+        "donchian_low_240": donchian_low,
+        "donchian_high_20": donchian_high_20,
+        "donchian_low_20": donchian_low_20,
+        "donchian_high_k": donchian_high_k,
+        "donchian_low_k": donchian_low_k,
+        "consec_close_above_donchian_20": consec_close_above_donchian_20,
+        "consec_close_below_donchian_20": consec_close_below_donchian_20,
+        "atr14": atr14,
+        "atr14_sma20": atr14_sma20,
+        "bb_upper": bb_upper,
+        "bb_lower": bb_lower,
+        "bb_mid": bb_mid,
+        "bb_width": bb_width,
+        "bb_width_prev": bb_width_prev,
+        "volume_ratio": volume_ratio,
+        "volume": volume_ltf,
+        "volume_prev": volume_prev,
+        "candle_body_ratio": candle_body_ratio,
+        "rsi14": rsi14,
+        "rsi14_prev": rsi14_prev,
+        "consec_above_ema50": consec_above_ema50,
+        "consec_below_ema50": consec_below_ema50,
+        "consec_above_ema50_prev": consec_above_ema50_prev,
+        "consec_below_ema50_prev": consec_below_ema50_prev,
+        "close_max_n": close_max_n,
+        "close_min_n": close_min_n,
         "time_exit_bars": time_exit_bars,
         "stability_n": stability_n,
-        "trend_candles_below_ema50": trend_candles_below_ema50 if trend_candles_below_ema50 is not None else -1.0,
-        "trend_candles_above_ema50": trend_candles_above_ema50 if trend_candles_above_ema50 is not None else -1.0,
-        "wick_ratio_count": wick_ratio_count if wick_ratio_count is not None else -1.0,
-        "swing_high_m": swing_high_m if swing_high_m is not None else -1.0,
-        "swing_low_m": swing_low_m if swing_low_m is not None else -1.0,
+        "trend_candles_below_ema50": trend_candles_below_ema50,
+        "trend_candles_above_ema50": trend_candles_above_ema50,
+        "wick_ratio_count": wick_ratio_count,
+        "swing_high_m": swing_high_m,
+        "swing_low_m": swing_low_m,
     }
 
     # HTF Context (1h default)
@@ -731,21 +788,39 @@ def build_payload(
     except Exception:
         session_bucket = "Unknown"
 
+    htf_missing_map = {
+        "context_htf.ema200": ema200_htf,
+        "context_htf.ema_fast": ema_fast_htf,
+        "context_htf.ema200_prev_n": ema200_prev_n,
+        "context_htf.ema200_slope_norm": ema200_slope_norm,
+        "context_htf.consec_above_ema200": consec_above_ema200,
+        "context_htf.consec_below_ema200": consec_below_ema200,
+        "context_htf.consec_higher_close": consec_higher_close,
+        "context_htf.consec_lower_close": consec_lower_close,
+        "context_htf.close": close_htf,
+        "context_htf.rsi14": rsi_htf,
+        "context_htf.rsi14_prev": rsi_htf_prev,
+        "context_htf.atr14": atr14_htf,
+        "context_htf.atr14_percentile": htf_atr14_percentile,
+    }
+    for field_name, value in htf_missing_map.items():
+        _add_missing_field(missing_fields, field_name, value)
+
     context_htf = {
-        "ema200": ema200_htf if ema200_htf is not None else -1.0,
-        "ema_fast": ema_fast_htf if ema_fast_htf is not None else -1.0,
-        "ema200_prev_n": ema200_prev_n if ema200_prev_n is not None else -1.0,
-        "ema200_slope_norm": ema200_slope_norm if ema200_slope_norm is not None else -1.0,
-        "consec_above_ema200": consec_above_ema200 if consec_above_ema200 is not None else -1.0,
-        "consec_below_ema200": consec_below_ema200 if consec_below_ema200 is not None else -1.0,
-        "consec_higher_close": consec_higher_close if consec_higher_close is not None else -1.0,
-        "consec_lower_close": consec_lower_close if consec_lower_close is not None else -1.0,
-        "close": close_htf if close_htf is not None else -1.0,
-        "rsi14": rsi_htf if rsi_htf is not None else -1.0,
-        "rsi14_prev": rsi_htf_prev if rsi_htf_prev is not None else -1.0,
+        "ema200": ema200_htf,
+        "ema_fast": ema_fast_htf,
+        "ema200_prev_n": ema200_prev_n,
+        "ema200_slope_norm": ema200_slope_norm,
+        "consec_above_ema200": consec_above_ema200,
+        "consec_below_ema200": consec_below_ema200,
+        "consec_higher_close": consec_higher_close,
+        "consec_lower_close": consec_lower_close,
+        "close": close_htf,
+        "rsi14": rsi_htf,
+        "rsi14_prev": rsi_htf_prev,
         "trend": trend,
-        "atr14": atr14_htf if atr14_htf is not None else -1.0,
-        "atr14_percentile": htf_atr14_percentile if htf_atr14_percentile is not None else -1.0,
+        "atr14": atr14_htf,
+        "atr14_percentile": htf_atr14_percentile,
         "session_bucket": session_bucket,
         "timeframe": htf_timeframe,
     }
@@ -815,7 +890,8 @@ def build_payload(
         "context_htf": context_htf,
         "risk_policy": risk_policy,
         "market_meta": market_meta,
-        "exchange_limits": exchange_limits
+        "exchange_limits": exchange_limits,
+        "missing_fields": missing_fields,
     }
     
     # Validate payload

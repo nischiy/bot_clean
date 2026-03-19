@@ -327,10 +327,10 @@ def test_make_decision_hold():
 
 def test_hold_rejects_use_routed_regime(monkeypatch, valid_payload_long):
     payload = copy.deepcopy(valid_payload_long)
-    payload["features_ltf"]["ema50"] = -1.0
-    payload["features_ltf"]["bb_upper"] = -1.0
-    payload["features_ltf"]["bb_lower"] = -1.0
-    payload["features_ltf"]["bb_mid"] = -1.0
+    payload["features_ltf"]["ema50"] = None
+    payload["features_ltf"]["bb_upper"] = None
+    payload["features_ltf"]["bb_lower"] = None
+    payload["features_ltf"]["bb_mid"] = None
     decision = make_decision(payload)
     assert decision["intent"] == "HOLD"
     rejects = decision.get("reject_reasons") or []
@@ -647,13 +647,13 @@ def test_strategy_selection_priority(monkeypatch, valid_payload_long):
 
 def test_sentinel_fields_fail_closed(valid_payload_long):
     payload = copy.deepcopy(valid_payload_long)
-    payload["features_ltf"]["ema50"] = -1.0
-    payload["features_ltf"]["bb_upper"] = -1.0
-    payload["features_ltf"]["bb_lower"] = -1.0
-    payload["features_ltf"]["bb_mid"] = -1.0
-    payload["features_ltf"]["donchian_high_20"] = -1.0
-    payload["features_ltf"]["donchian_low_20"] = -1.0
-    payload["features_ltf"]["atr14_sma20"] = -1.0
+    payload["features_ltf"]["ema50"] = None
+    payload["features_ltf"]["bb_upper"] = None
+    payload["features_ltf"]["bb_lower"] = None
+    payload["features_ltf"]["bb_mid"] = None
+    payload["features_ltf"]["donchian_high_20"] = None
+    payload["features_ltf"]["donchian_low_20"] = None
+    payload["features_ltf"]["atr14_sma20"] = None
 
     decision = make_decision(payload)
 

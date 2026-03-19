@@ -57,8 +57,8 @@ Then written into the payload:
 ```python
     features_ltf = {
         ...
-        "close": close_ltf if close_ltf is not None else -1.0,
-        "close_prev": close_prev if close_prev is not None else -1.0,
+"close": close_ltf,
+"close_prev": close_prev,
         ...
     }
 ```

@@ -8,6 +8,18 @@ from __future__ import annotations
 from typing import Dict, Any, Tuple, Optional
 
 
+FINAL_AUTHORITY_STAGES = {
+    "TIME_EXIT",
+    "HARD_BLOCK",
+    "LEGACY_CONFIRMED",
+    "PREDICTIVE_EARLY",
+    "QUALITY_REJECT",
+    "EVENT_REJECT",
+    "LATE_REJECT",
+    "ROUTER_REJECT",
+}
+
+
 class InvariantViolation(RuntimeError):
     """Raised when a runtime invariant is violated."""
     def __init__(self, error_code: str, message: str, details: Optional[Dict[str, Any]] = None):
@@ -138,7 +150,40 @@ def check_decision_validated(decision: Dict[str, Any]) -> Tuple[bool, str]:
     
     if "signal" not in decision:
         return False, "INV_DECISION_MISSING_SIGNAL"
+
+    final_authority_stage = decision.get("final_authority_stage")
+    if final_authority_stage not in FINAL_AUTHORITY_STAGES:
+        return False, f"INV_DECISION_INVALID_FINAL_AUTHORITY: {final_authority_stage}"
     
+    return True, ""
+
+
+def check_decision_semantics(decision: Dict[str, Any]) -> Tuple[bool, str]:
+    signal = decision.get("signal") or {}
+    execution_decision = str(decision.get("execution_decision") or "")
+    predictive_bias = str(signal.get("predictive_bias") or "NEUTRAL")
+    selected_strategy = str(signal.get("selected_strategy") or "NONE")
+    router_candidates = list(signal.get("router_candidates") or [])
+    event_hard_block = bool(signal.get("event_hard_block"))
+    hard_block_reason = signal.get("hard_block_reason")
+    missing_fields = list(decision.get("missing_fields") or [])
+
+    if execution_decision.startswith("OPEN_LONG") and predictive_bias != "LONG":
+        return False, "INV_EXECUTION_LONG_BIAS_MISMATCH"
+    if execution_decision.startswith("OPEN_SHORT") and predictive_bias != "SHORT":
+        return False, "INV_EXECUTION_SHORT_BIAS_MISMATCH"
+    if selected_strategy not in ("NONE", "TIME_EXIT") and selected_strategy not in router_candidates:
+        return False, "INV_SELECTED_STRATEGY_NOT_IN_ROUTER_CANDIDATES"
+    if event_hard_block and not hard_block_reason and not ((signal.get("event_gate") or {}).get("hard_block_reason")):
+        return False, "INV_EVENT_HARD_BLOCK_MISSING_REASON"
+    if missing_fields and decision.get("intent") != "HOLD":
+        return False, "INV_MISSING_FIELDS_NOT_HELD"
+    if execution_decision == "HOLD_LOW_QUALITY" and decision.get("hold_reason") not in {
+        "NEUTRAL_MARKET",
+        "UNCONFIRMED_DIRECTION",
+        "PLAN_BUILD_FAILED",
+    }:
+        return False, "INV_HOLD_LOW_QUALITY_MISSING_REASON"
     return True, ""
 
 
@@ -167,6 +212,10 @@ def enforce_invariants(
         is_valid, error_code = check_decision_validated(decision)
         if not is_valid:
             errors.append((error_code, f"Decision not validated: {error_code}"))
+
+        is_valid, error_code = check_decision_semantics(decision)
+        if not is_valid:
+            errors.append((error_code, f"Decision semantics invalid: {error_code}"))
     
     if trade_plan is not None:
         # Check trade_plan passed risk

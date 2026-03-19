@@ -2,6 +2,7 @@ from __future__ import annotations
 import os
 import math
 import json
+import re
 import sys
 import time
 import logging
@@ -641,6 +642,8 @@ def _run_once_contracts(app: "TraderApp") -> None:
         cooldown_active=cooldown_active,
         time_exit_signal=time_exit_signal,
     )
+    decision_log["risk_plan_outcome"] = "NOT_REQUESTED"
+    decision_log["execution_submission_outcome"] = "NOT_ATTEMPTED"
 
     # Check if decision has UPDATE_SLTP intent (from move_sl_to_be_after_tp1)
     # Detect TP1 fill by comparing current position qty vs original qty
@@ -708,9 +711,12 @@ def _run_once_contracts(app: "TraderApp") -> None:
         reject_log = {
             "timestamp_closed": latest_closed_ts,
             "decision": intent,
+            "final_authority_stage": decision.get("final_authority_stage"),
+            "hold_reason": decision.get("hold_reason"),
             "main_blocker": main_blocker,
             "blocker_categories": blocker_categories,
             "blockers": reject_blockers,
+            "structured_blockers": _build_structured_blockers(reject_blockers, stage="decision"),
             "reject_count": len(reject_blockers),
             "selected_strategy": decision.get("signal", {}).get("selected_strategy", "NONE"),
             "regime_detected": decision.get("signal", {}).get("regime_detected", "UNKNOWN"),
@@ -751,7 +757,13 @@ def _run_once_contracts(app: "TraderApp") -> None:
     all_rejects = [*decision_rejects, *[r for r in rejections if r not in decision_rejects]]
     decision_log["decision"] = "TRADE" if trade_plan is not None else "HOLD"
     decision_log["reject_reasons"] = all_rejects
+    decision_log["structured_blockers"] = _build_structured_blockers(
+        _prioritize_blockers(_strip_strategy_ineligible_from_blockers(all_rejects)),
+        stage="decision",
+    )
     decision_log["cooldown_active"] = cooldown_active
+    decision_log["risk_plan_outcome"] = "PLAN_CREATED" if trade_plan is not None else "REJECTED"
+    decision_log["execution_submission_outcome"] = "NOT_ATTEMPTED"
     
     # Enforce invariants: execution attempted without SL → HARD STOP
     if trade_plan is not None and intent in ("LONG", "SHORT"):
@@ -809,6 +821,11 @@ def _run_once_contracts(app: "TraderApp") -> None:
         })
         if get_bool("LIVE_READONLY", False):
             decision_log["note"] = "NOT SUBMITTED: READONLY"
+            decision_log["execution_submission_outcome"] = "BLOCKED_READONLY"
+        elif app.trade_enabled:
+            decision_log["execution_submission_outcome"] = "SUBMISSION_ATTEMPTED"
+        else:
+            decision_log["execution_submission_outcome"] = "TRADE_DISABLED"
     _log_structured(app.log, "decision_candle", decision_log)
     _log_decision_clean(app.log, decision_log)
 
@@ -826,7 +843,9 @@ def _run_once_contracts(app: "TraderApp") -> None:
                 "main_blocker": main_blocker,
                 "blocker_categories": blocker_categories,
                 "blockers": rejections,
+                "structured_blockers": _build_structured_blockers(rejections, stage="risk"),
                 "reject_count": len(rejections),
+                "risk_plan_outcome": "REJECTED",
             }
             # Add explain fields if present (risk rejections may still have strategy explain fields)
             if explain_pullback:
@@ -913,6 +932,7 @@ def _run_once_contracts(app: "TraderApp") -> None:
 
     live_readonly = get_bool("LIVE_READONLY", False)
     if live_readonly:
+        decision_log["execution_submission_outcome"] = "BLOCKED_READONLY"
         append_event(
             event_type="execution_attempted",
             symbol=app.symbol,
@@ -935,6 +955,7 @@ def _run_once_contracts(app: "TraderApp") -> None:
         })
     elif app.trade_enabled:
         exe = ExecutionService(logger=app.log)
+        decision_log["execution_submission_outcome"] = "SUBMISSION_ATTEMPTED"
         append_event(
             event_type="execution_attempted",
             symbol=app.symbol,
@@ -961,6 +982,7 @@ def _run_once_contracts(app: "TraderApp") -> None:
                     current_pos["tp1_qty"] = float(tp1_qty)
                 save_position_state(app.symbol, current_pos)
     else:
+        decision_log["execution_submission_outcome"] = "TRADE_DISABLED"
         app.log.info("contracts: trade disabled — execution skipped")
         _log_structured(app.log, "execution_skipped", {
             "timestamp_closed": latest_closed_ts,
@@ -1144,9 +1166,53 @@ def _strip_strategy_ineligible_from_blockers(reject_reasons: List[str]) -> List[
     return [c for c in reject_reasons if not (isinstance(c, str) and ":strategy_ineligible" in c)]
 
 
+def _blocker_category(code: str) -> str:
+    if code == "MISSING_DATA" or code.startswith("insufficient_history"):
+        return "missing_data"
+    if code.startswith("cooldown_active"):
+        return "cooldown"
+    if code.startswith("PX:"):
+        return "execution_quality"
+    if code.startswith("EV:"):
+        return "expected_value"
+    if code.startswith("E:"):
+        return "event"
+    if code.startswith("T:") or code.startswith("C:") or code.startswith("B:") or code.startswith("P:") or code.startswith("M:") or code.startswith("R:") or code.startswith("S:") or code.startswith("A:") or code.startswith("X:"):
+        return "strategy"
+    if code.startswith("daily_drawdown_exceeded") or code.startswith("consecutive_losses_exceeded") or code.startswith("multiple_positions") or code.startswith("spread_too_wide") or code.startswith("abnormal_atr_spike") or code.startswith("stale_data"):
+        return "risk"
+    return "system"
+
+
+def _parse_blocker_actual_threshold(code: str) -> Tuple[Optional[float], Optional[float]]:
+    cooldown_match = re.search(r":\s*(\d+(?:\.\d+)?)s<(\d+(?:\.\d+)?)s", code)
+    if cooldown_match:
+        return float(cooldown_match.group(1)), float(cooldown_match.group(2))
+    compare_match = re.search(r":\s*([-+]?\d+(?:\.\d+)?)%?\s*>?=?\s*([-+]?\d+(?:\.\d+)?)%?", code)
+    if compare_match:
+        return float(compare_match.group(1)), float(compare_match.group(2))
+    return None, None
+
+
+def _build_structured_blockers(blockers: List[str], *, stage: str) -> List[Dict[str, Any]]:
+    structured: List[Dict[str, Any]] = []
+    for blocker in blockers:
+        actual, threshold = _parse_blocker_actual_threshold(str(blocker))
+        structured.append({
+            "stage": stage,
+            "code": str(blocker),
+            "category": _blocker_category(str(blocker)),
+            "actual": actual,
+            "threshold": threshold,
+            "blocking": True,
+        })
+    return structured
+
+
 def _log_decision_clean(logger: logging.Logger, decision_log: Dict[str, Any]) -> None:
     raw_rejects = list(decision_log.get("reject_reasons") or [])
     blockers = _prioritize_blockers(_strip_strategy_ineligible_from_blockers(raw_rejects))
+    structured_blockers = _build_structured_blockers(blockers[:6], stage="decision")
     categories = []
     for code in blockers:
         if not isinstance(code, str) or ":" not in code:
@@ -1174,7 +1240,15 @@ def _log_decision_clean(logger: logging.Logger, decision_log: Dict[str, Any]) ->
         "regime_used_for_routing": decision_log.get("regime_used_for_routing"),
         "selected_strategy": decision_log.get("selected_strategy"),
         "eligible_strategies": decision_log.get("eligible_strategies"),
+        "router_candidates": decision_log.get("router_candidates"),
+        "post_gate_candidates": decision_log.get("post_gate_candidates"),
+        "selection_block_reason": decision_log.get("selection_block_reason"),
         "strategy_block_reason": decision_log.get("strategy_block_reason"),
+        "final_authority_stage": decision_log.get("final_authority_stage"),
+        "directional_intent": decision_log.get("directional_intent"),
+        "hold_reason": decision_log.get("hold_reason"),
+        "predictive_authority": decision_log.get("predictive_authority"),
+        "missing_fields": decision_log.get("missing_fields"),
         "hold_reason_summary": decision_log.get("hold_reason_summary"),
         "decision": decision_log.get("decision"),
         "stability_score": decision_log.get("stability_score"),
@@ -1189,6 +1263,7 @@ def _log_decision_clean(logger: logging.Logger, decision_log: Dict[str, Any]) ->
         "leverage_used": decision_log.get("leverage_used"),
         "main_blocker": blockers[0] if blockers else None,
         "blockers": blockers[:6],
+        "structured_blockers": structured_blockers,
         "blocker_categories": categories[:6],
         "gating_summary": gating_summary,
     }
@@ -2034,17 +2109,32 @@ def _build_explain_fields(payload: Dict[str, Any], decision: Dict[str, Any]) -> 
 
     return {
         "trend": signal.get("trend"),
+        "runtime_profile_version": decision.get("runtime_profile_version"),
+        "timeframe_decision": decision.get("timeframe_decision") or payload.get("market_identity", {}).get("timeframe"),
+        "logic_family": decision.get("logic_family"),
+        "decision_engine_outcome": decision.get("decision_engine_outcome"),
+        "final_authority_stage": decision.get("final_authority_stage"),
+        "directional_intent": decision.get("directional_intent"),
+        "execution_outcome": decision.get("execution_outcome"),
+        "hold_reason": decision.get("hold_reason"),
+        "predictive_authority": decision.get("predictive_authority"),
+        "missing_fields": decision.get("missing_fields") or payload.get("missing_fields") or [],
         "execution_decision": decision.get("execution_decision"),
         "entry_mode": decision.get("entry_mode"),
         "direction": signal.get("direction"),
         "regime": signal.get("regime"),
         "regime_detected": signal.get("regime_detected"),
         "regime_used_for_routing": signal.get("regime_used_for_routing"),
+        "regime_alias": signal.get("regime_alias"),
+        "regime_context": signal.get("regime_context"),
         "trend_strength": signal.get("trend_strength"),
         "trend_stable_long": signal.get("trend_stable_long"),
         "trend_stable_short": signal.get("trend_stable_short"),
         "selected_strategy": signal.get("selected_strategy"),
         "eligible_strategies": signal.get("eligible_strategies"),
+        "router_candidates": signal.get("router_candidates"),
+        "post_gate_candidates": signal.get("post_gate_candidates"),
+        "selection_block_reason": signal.get("selection_block_reason"),
         "strategy_block_reason": signal.get("strategy_block_reason"),
         "hold_reason_summary": signal.get("hold_reason_summary"),
         "router_debug": signal.get("router_debug"),
@@ -2074,6 +2164,8 @@ def _build_explain_fields(payload: Dict[str, Any], decision: Dict[str, Any]) -> 
         "event_detected": signal.get("event_detected"),
         "event_block": signal.get("event_block"),
         "event_cooldown_remaining": signal.get("event_cooldown_remaining"),
+        "event_gate": signal.get("event_gate"),
+        "hard_block_reason": signal.get("hard_block_reason"),
         "trend_accel_long_ok": signal.get("trend_accel_long_ok"),
         "trend_accel_short_ok": signal.get("trend_accel_short_ok"),
         "squeeze_break_long_ok": signal.get("squeeze_break_long_ok"),
@@ -2209,11 +2301,13 @@ def _build_explain_fields(payload: Dict[str, Any], decision: Dict[str, Any]) -> 
         "transition_name": signal.get("transition_name") or predictive.get("transition_name"),
         "event_classification": signal.get("event_classification") or predictive.get("event_classification"),
         "confirmation_quality": signal.get("confirmation_quality") or validation.get("confirmation_quality"),
+        "confirmation_components": signal.get("confirmation_components") or validation.get("confirmation_components"),
         "supporting_strategies": signal.get("supporting_strategies") or validation.get("supporting_strategies") or [],
         "opposing_strategies": signal.get("opposing_strategies") or validation.get("opposing_strategies") or [],
         "validator_reject_map": signal.get("validator_reject_map") or validation.get("validator_reject_map") or {},
         "execution_size_multiplier": signal.get("execution_size_multiplier") or execution_profile.get("size_multiplier"),
         "event_hard_block": signal.get("event_hard_block") or execution_profile.get("event_hard_block"),
+        "late_entry_context": signal.get("late_entry_context"),
         "analytics_pending_count": analytics.get("pending_count"),
         "analytics_label_horizon": analytics.get("label_horizon_candles"),
         "latest_finalized_label": analytics.get("latest_finalized_label"),
@@ -2233,9 +2327,17 @@ def _build_decision_log(
     time_exit_signal: bool,
 ) -> Dict[str, Any]:
     price_snapshot = payload.get("price_snapshot", {})
+    structured_blockers = _build_structured_blockers(
+        _prioritize_blockers(_strip_strategy_ineligible_from_blockers(all_rejects)),
+        stage="decision",
+    )
     log_dict = {
         "timestamp_closed": latest_closed_ts,
         "interval": interval,
+        "runtime_profile_version": explain_fields.get("runtime_profile_version"),
+        "timeframe_decision": explain_fields.get("timeframe_decision"),
+        "logic_family": explain_fields.get("logic_family"),
+        "decision_engine_outcome": explain_fields.get("decision_engine_outcome"),
         "close": explain_fields.get("close_ltf"),
         "bid": price_snapshot.get("bid"),
         "ask": price_snapshot.get("ask"),
@@ -2253,9 +2355,17 @@ def _build_decision_log(
         "regime": explain_fields.get("regime"),
         "regime_detected": explain_fields.get("regime_detected"),
         "regime_used_for_routing": explain_fields.get("regime_used_for_routing"),
+        "regime_alias": explain_fields.get("regime_alias"),
+        "regime_context": explain_fields.get("regime_context"),
         "direction": explain_fields.get("direction"),
+        "directional_intent": explain_fields.get("directional_intent"),
         "execution_decision": explain_fields.get("execution_decision"),
+        "execution_outcome": explain_fields.get("execution_outcome"),
         "entry_mode": explain_fields.get("entry_mode"),
+        "final_authority_stage": explain_fields.get("final_authority_stage"),
+        "hold_reason": explain_fields.get("hold_reason"),
+        "predictive_authority": explain_fields.get("predictive_authority"),
+        "missing_fields": explain_fields.get("missing_fields"),
         "trend_strength": explain_fields.get("trend_strength"),
         "trend_stable_long": explain_fields.get("trend_stable_long"),
         "trend_stable_short": explain_fields.get("trend_stable_short"),
@@ -2273,6 +2383,8 @@ def _build_decision_log(
         "event_detected": explain_fields.get("event_detected"),
         "event_block": explain_fields.get("event_block"),
         "event_cooldown_remaining": explain_fields.get("event_cooldown_remaining"),
+        "event_gate": explain_fields.get("event_gate"),
+        "hard_block_reason": explain_fields.get("hard_block_reason"),
         "trend_accel_long_ok": explain_fields.get("trend_accel_long_ok"),
         "trend_accel_short_ok": explain_fields.get("trend_accel_short_ok"),
         "squeeze_break_long_ok": explain_fields.get("squeeze_break_long_ok"),
@@ -2321,7 +2433,10 @@ def _build_decision_log(
         "breakout_long": explain_fields.get("breakout_long"),
         "breakout_short": explain_fields.get("breakout_short"),
         "eligible_strategies": explain_fields.get("eligible_strategies"),
+        "router_candidates": explain_fields.get("router_candidates"),
+        "post_gate_candidates": explain_fields.get("post_gate_candidates"),
         "selected_strategy": explain_fields.get("selected_strategy"),
+        "selection_block_reason": explain_fields.get("selection_block_reason"),
         "strategy_block_reason": explain_fields.get("strategy_block_reason"),
         "router_debug": explain_fields.get("router_debug"),
         "hold_reason_summary": explain_fields.get("hold_reason_summary"),
@@ -2356,11 +2471,13 @@ def _build_decision_log(
         "transition_name": explain_fields.get("transition_name"),
         "event_classification": explain_fields.get("event_classification"),
         "confirmation_quality": explain_fields.get("confirmation_quality"),
+        "confirmation_components": explain_fields.get("confirmation_components"),
         "supporting_strategies": explain_fields.get("supporting_strategies"),
         "opposing_strategies": explain_fields.get("opposing_strategies"),
         "validator_reject_map": explain_fields.get("validator_reject_map"),
         "execution_size_multiplier": explain_fields.get("execution_size_multiplier"),
         "event_hard_block": explain_fields.get("event_hard_block"),
+        "late_entry_context": explain_fields.get("late_entry_context"),
         "analytics_pending_count": explain_fields.get("analytics_pending_count"),
         "analytics_label_horizon": explain_fields.get("analytics_label_horizon"),
         "latest_finalized_label": explain_fields.get("latest_finalized_label"),
@@ -2371,10 +2488,12 @@ def _build_decision_log(
         "prev_rsi": explain_fields.get("rsi14_prev_ltf"),
         "decision": "TRADE" if trade_plan is not None else "HOLD",
         "reject_reasons": all_rejects,
+        "structured_blockers": structured_blockers,
         "cooldown_active": cooldown_active,
         "ema_ltf": explain_fields.get("ema50_ltf"),
         "thresholds": explain_fields.get("thresholds"),
         "time_exit_signal": time_exit_signal,
+        "deprecated_fields": ["regime", "regime_detected", "regime_used_for_routing"],
     }
     # Add explain fields if present
     if explain_fields.get("explain_pullback"):

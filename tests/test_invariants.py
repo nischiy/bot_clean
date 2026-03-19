@@ -94,6 +94,7 @@ class TestInvariantEnforcement:
             "intent": "HOLD",
             "reject_reasons": [],
             "signal": {},
+            "final_authority_stage": "ROUTER_REJECT",
         }
         is_valid, error = check_decision_validated(decision)
         assert is_valid
@@ -105,6 +106,7 @@ class TestInvariantEnforcement:
             "intent": "INVALID",
             "reject_reasons": [],
             "signal": {},
+            "final_authority_stage": "ROUTER_REJECT",
         }
         is_valid, error = check_decision_validated(decision)
         assert not is_valid
@@ -112,7 +114,7 @@ class TestInvariantEnforcement:
     
     def test_enforce_invariants_all_pass(self):
         """Test enforce_invariants when all checks pass."""
-        decision = {"intent": "HOLD", "reject_reasons": [], "signal": {}}
+        decision = {"intent": "HOLD", "reject_reasons": [], "signal": {}, "final_authority_stage": "ROUTER_REJECT"}
         payload = {"account_state": {"equity": 1000.0}, "market_identity": {"symbol": "BTCUSDT", "timestamp_closed": 1700000000}}
         trade_plan = {"action": "OPEN", "stop_loss": {"price": 49000.0}}
         
@@ -121,7 +123,7 @@ class TestInvariantEnforcement:
     
     def test_enforce_invariants_violation_raises(self):
         """Test enforce_invariants raises on violation."""
-        decision = {"intent": "LONG", "reject_reasons": [], "signal": {}}
+        decision = {"intent": "LONG", "reject_reasons": [], "signal": {}, "final_authority_stage": "LEGACY_CONFIRMED"}
         payload = None  # Missing payload
         
         with pytest.raises(InvariantViolation) as exc_info:

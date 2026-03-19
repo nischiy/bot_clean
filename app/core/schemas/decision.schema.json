@@ -5,9 +5,17 @@
   "properties": {
     "intent": {
       "type": "string",
-      "enum": ["LONG", "SHORT", "HOLD", "CLOSE"]
+      "enum": ["LONG", "SHORT", "HOLD", "CLOSE", "UPDATE_SLTP"]
+    },
+    "directional_intent": {
+      "type": "string",
+      "enum": ["LONG", "SHORT", "NEUTRAL"]
     },
     "reject_reasons": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "missing_fields": {
       "type": "array",
       "items": {"type": "string"}
     },
@@ -50,9 +58,45 @@
         "UPDATE_SLTP"
       ]
     },
+    "execution_outcome": {
+      "type": "string"
+    },
     "entry_mode": {
       "type": "string",
       "enum": ["NONE", "EARLY", "CONFIRMED"]
+    },
+    "hold_reason": {
+      "type": ["string", "null"],
+      "enum": ["NEUTRAL_MARKET", "UNCONFIRMED_DIRECTION", "PLAN_BUILD_FAILED", null]
+    },
+    "final_authority_stage": {
+      "type": "string",
+      "enum": [
+        "TIME_EXIT",
+        "HARD_BLOCK",
+        "LEGACY_CONFIRMED",
+        "PREDICTIVE_EARLY",
+        "QUALITY_REJECT",
+        "EVENT_REJECT",
+        "LATE_REJECT",
+        "ROUTER_REJECT"
+      ]
+    },
+    "predictive_authority": {
+      "type": "string",
+      "enum": ["NONE", "PROBE", "EXECUTABLE"]
+    },
+    "decision_engine_outcome": {
+      "type": "string"
+    },
+    "runtime_profile_version": {
+      "type": "string"
+    },
+    "timeframe_decision": {
+      "type": "string"
+    },
+    "logic_family": {
+      "type": "string"
     },
     "signal": {
       "type": "object"

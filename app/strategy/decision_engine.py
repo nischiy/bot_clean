@@ -53,6 +53,64 @@ def normalize_strategy_block_reason(code: Optional[str]) -> str:
     return "gated_by_conditions"
 
 
+FINAL_AUTHORITY_STAGES = {
+    "TIME_EXIT",
+    "HARD_BLOCK",
+    "LEGACY_CONFIRMED",
+    "PREDICTIVE_EARLY",
+    "QUALITY_REJECT",
+    "EVENT_REJECT",
+    "LATE_REJECT",
+    "ROUTER_REJECT",
+}
+
+HOLD_LOW_QUALITY_REASONS = {
+    "NEUTRAL_MARKET",
+    "UNCONFIRMED_DIRECTION",
+    "PLAN_BUILD_FAILED",
+}
+
+REGIME_ALIAS_MAP = {
+    "TREND_CONTINUATION_IMPULSE": "TREND_CONTINUATION",
+    "TREND_CONTINUATION_CONTEXT": "TREND_CONTINUATION",
+}
+
+CRITICAL_DECISION_FIELDS = {
+    "features_ltf.close",
+    "features_ltf.close_prev",
+    "features_ltf.high",
+    "features_ltf.low",
+    "features_ltf.ema50",
+    "features_ltf.ema120",
+    "features_ltf.donchian_high_20",
+    "features_ltf.donchian_low_20",
+    "features_ltf.consec_close_above_donchian_20",
+    "features_ltf.consec_close_below_donchian_20",
+    "features_ltf.atr14",
+    "features_ltf.atr14_sma20",
+    "features_ltf.volume_ratio",
+    "features_ltf.candle_body_ratio",
+    "features_ltf.rsi14",
+    "features_ltf.rsi14_prev",
+    "features_ltf.consec_above_ema50",
+    "features_ltf.consec_below_ema50",
+    "features_ltf.consec_above_ema50_prev",
+    "features_ltf.consec_below_ema50_prev",
+    "features_ltf.bb_upper",
+    "features_ltf.bb_lower",
+    "features_ltf.bb_mid",
+    "context_htf.ema200",
+    "context_htf.ema200_prev_n",
+    "context_htf.ema200_slope_norm",
+    "context_htf.consec_above_ema200",
+    "context_htf.consec_below_ema200",
+    "context_htf.consec_higher_close",
+    "context_htf.consec_lower_close",
+    "context_htf.close",
+    "context_htf.atr14",
+}
+
+
 def _ordered_unique(items: List[str]) -> List[str]:
     ordered: List[str] = []
     seen = set()
@@ -62,6 +120,136 @@ def _ordered_unique(items: List[str]) -> List[str]:
         ordered.append(item)
         seen.add(item)
     return ordered
+
+
+def _legacy_regime_alias(regime: Optional[str]) -> Optional[str]:
+    if regime is None:
+        return None
+    return REGIME_ALIAS_MAP.get(str(regime), str(regime))
+
+
+def _internalize_regime(regime: str, explain: Dict[str, Any]) -> str:
+    if regime != "TREND_CONTINUATION":
+        return regime
+    reason = str((explain or {}).get("reason") or "")
+    return "TREND_CONTINUATION_IMPULSE" if reason == "impulse_continuation_context" else "TREND_CONTINUATION_CONTEXT"
+
+
+def _collect_missing_fields(payload: Dict[str, Any]) -> List[str]:
+    missing_fields = list(payload.get("missing_fields") or [])
+    for section_name in ("features_ltf", "context_htf"):
+        section = payload.get(section_name) or {}
+        if not isinstance(section, dict):
+            continue
+        for key, value in section.items():
+            if isinstance(value, (int, float)) and float(value) == -1:
+                field_name = f"{section_name}.{key}"
+                if field_name not in missing_fields:
+                    missing_fields.append(field_name)
+    return _ordered_unique(missing_fields)
+
+
+def _derive_predictive_authority(
+    *,
+    predictive_bias: str,
+    predictive_state: str,
+    confidence_tier: str,
+    invalidation_reasons: List[str],
+) -> str:
+    if predictive_bias not in ("LONG", "SHORT"):
+        return "NONE"
+    if predictive_state in ("CHOP", "NEUTRAL"):
+        return "NONE"
+    invalidation_pressure = len([reason for reason in invalidation_reasons if reason])
+    if confidence_tier == "HIGH" and invalidation_pressure == 0:
+        return "EXECUTABLE"
+    if confidence_tier in ("MEDIUM", "HIGH") and invalidation_pressure <= 1:
+        return "PROBE"
+    return "NONE"
+
+
+def _derive_directional_intent(*, intent: str, predictive_bias: str, legacy_intent: str) -> str:
+    for candidate in (intent, legacy_intent, predictive_bias):
+        if candidate in ("LONG", "SHORT"):
+            return str(candidate)
+    return "NEUTRAL"
+
+
+def _derive_confirmation_components(
+    *,
+    predictive_bias: str,
+    selected_strategy: str,
+    validation_summary: Dict[str, Any],
+    confirmation_ok: bool,
+    intent: str,
+    entry: Optional[float],
+    sl: Optional[float],
+    rr: Optional[float],
+    min_rr: float,
+) -> Dict[str, bool]:
+    supporting = list(validation_summary.get("supporting_strategies") or [])
+    router_confirmation = selected_strategy not in ("", "NONE")
+    directional_alignment = (
+        (predictive_bias in ("LONG", "SHORT") and intent == predictive_bias)
+        or (router_confirmation and bool(supporting))
+        or (predictive_bias == "NEUTRAL" and intent in ("LONG", "SHORT"))
+    )
+    structure_confirmation = bool(confirmation_ok or supporting)
+    risk_feasibility = bool(
+        intent in ("LONG", "SHORT")
+        and entry is not None
+        and sl is not None
+        and rr is not None
+        and rr >= min_rr
+    )
+    return {
+        "directional_alignment": directional_alignment,
+        "structure_confirmation": structure_confirmation,
+        "router_confirmation": router_confirmation,
+        "risk_feasibility": risk_feasibility,
+    }
+
+
+def _derive_hold_reason(
+    *,
+    execution_decision: str,
+    predictive_bias: str,
+    plan_build_failed: bool,
+) -> Optional[str]:
+    if execution_decision != "HOLD_LOW_QUALITY":
+        return None
+    if plan_build_failed:
+        return "PLAN_BUILD_FAILED"
+    if predictive_bias not in ("LONG", "SHORT"):
+        return "NEUTRAL_MARKET"
+    return "UNCONFIRMED_DIRECTION"
+
+
+def _derive_final_authority_stage(
+    *,
+    execution_decision: str,
+    time_exit_signal: bool,
+    event_reject: bool,
+    late_reject: bool,
+    predictive_early: bool,
+    legacy_confirmed: bool,
+    hard_block: bool,
+) -> str:
+    if time_exit_signal:
+        return "TIME_EXIT"
+    if hard_block:
+        return "HARD_BLOCK"
+    if legacy_confirmed:
+        return "LEGACY_CONFIRMED"
+    if predictive_early:
+        return "PREDICTIVE_EARLY"
+    if event_reject:
+        return "EVENT_REJECT"
+    if late_reject:
+        return "LATE_REJECT"
+    if execution_decision == "HOLD_LOW_QUALITY":
+        return "QUALITY_REJECT"
+    return "ROUTER_REJECT"
 
 
 def _compute_routing_deadlock(
@@ -538,13 +726,13 @@ def _compute_regime_state_5m(context: Dict[str, Any]) -> Tuple[str, Dict[str, An
         and ema_side_aligned
     ):
         explain["reason"] = "impulse_continuation_context"
-        return "TREND_CONTINUATION", explain
+        return _internalize_regime("TREND_CONTINUATION", explain), explain
     if directional_pressure and dist50 is not None and dist50 > trend_dist50_max:
         explain["reason"] = "directional_pullback"
         return "PULLBACK", explain
     if directional_context and dist50 is not None and dist50 <= trend_dist50_max:
         explain["reason"] = "directional_continuation_context"
-        return "TREND_CONTINUATION", explain
+        return _internalize_regime("TREND_CONTINUATION", explain), explain
     if compression_ready and not directional_pressure:
         explain["reason"] = "neutral_compression"
         return "COMPRESSION", explain
@@ -557,7 +745,7 @@ def _compute_regime_state_5m(context: Dict[str, Any]) -> Tuple[str, Dict[str, An
 
 def compute_regime_5m(context: Dict[str, Any]) -> str:
     regime, _ = _compute_regime_state_5m(context)
-    return regime
+    return _legacy_regime_alias(regime)
 
 
 def select_strategy_by_regime(regime: str, context: Dict[str, Any]) -> str:
@@ -567,7 +755,7 @@ def select_strategy_by_regime(regime: str, context: Dict[str, Any]) -> str:
         return "SQUEEZE_BREAK" if (context.get("squeeze_break_long_ok") or context.get("squeeze_break_short_ok")) else "NONE"
     if regime == "TREND_ACCEL":
         return "TREND_ACCEL" if (context.get("trend_accel_long_ok") or context.get("trend_accel_short_ok")) else "NONE"
-    if regime == "TREND_CONTINUATION":
+    if regime in ("TREND_CONTINUATION", "TREND_CONTINUATION_IMPULSE", "TREND_CONTINUATION_CONTEXT"):
         return "CONTINUATION" if (context.get("cont_long_ok") or context.get("cont_short_ok")) else "NONE"
     if regime == "PULLBACK":
         return "PULLBACK_REENTRY" if (context.get("pullback_reentry_long_ok") or context.get("pullback_reentry_short_ok")) else "NONE"
@@ -791,6 +979,7 @@ def stage3_execution_decision(
     final_tp = legacy_tp
     final_rr = legacy_rr
     final_rule = None
+    plan_build_failed = False
 
     if legacy_intent == "CLOSE":
         execution_decision = "CLOSE"
@@ -803,6 +992,7 @@ def stage3_execution_decision(
             "tp": final_tp,
             "rr": final_rr,
             "rule": final_rule,
+            "plan_build_failed": plan_build_failed,
         }
 
     if not predictive_layer_enabled:
@@ -816,6 +1006,7 @@ def stage3_execution_decision(
                 "tp": legacy_tp,
                 "rr": legacy_rr,
                 "rule": validation_summary.get("selected_strategy"),
+                "plan_build_failed": plan_build_failed,
             }
         return {
             "execution_decision": "HOLD",
@@ -826,6 +1017,7 @@ def stage3_execution_decision(
             "tp": None,
             "rr": None,
             "rule": None,
+            "plan_build_failed": plan_build_failed,
         }
 
     if legacy_intent in ("LONG", "SHORT"):
@@ -838,6 +1030,7 @@ def stage3_execution_decision(
             "tp": legacy_tp,
             "rr": legacy_rr,
             "rule": legacy_selected_strategy,
+            "plan_build_failed": plan_build_failed,
         }
 
     if hard_hold_block or legacy_selected_strategy not in ("", "NONE"):
@@ -850,6 +1043,7 @@ def stage3_execution_decision(
             "tp": None,
             "rr": None,
             "rule": None,
+            "plan_build_failed": plan_build_failed,
         }
 
     if predictive_bias not in ("LONG", "SHORT"):
@@ -889,6 +1083,7 @@ def stage3_execution_decision(
         else:
             execution_decision = "HOLD_LOW_QUALITY"
             final_intent = "HOLD"
+            plan_build_failed = True
     else:
         execution_decision = "HOLD_LOW_QUALITY"
         final_intent = "HOLD"
@@ -902,6 +1097,7 @@ def stage3_execution_decision(
         "tp": final_tp,
         "rr": final_rr,
         "rule": final_rule,
+        "plan_build_failed": plan_build_failed,
     }
 
 
@@ -972,6 +1168,12 @@ def make_decision(
     position_state = payload.get("position_state", {})
     market_identity = payload.get("market_identity", {})
 
+    missing_fields = _collect_missing_fields(payload)
+    critical_missing_fields = [field for field in missing_fields if field in CRITICAL_DECISION_FIELDS]
+    missing_data_hard_block = bool(critical_missing_fields)
+    if missing_data_hard_block and "MISSING_DATA" not in reject_reasons:
+        reject_reasons.append("MISSING_DATA")
+
     close_ltf = _to_float(features_ltf.get("close")) or _to_float(price_snapshot.get("last")) or _to_float(price_snapshot.get("mark"))
     close_prev = _to_float(features_ltf.get("close_prev"))
     open_ltf = _to_float(features_ltf.get("open"))
@@ -991,9 +1193,9 @@ def make_decision(
     consec_close_below_donchian_20 = _to_float(features_ltf.get("consec_close_below_donchian_20"))
     atr14 = _to_float(features_ltf.get("atr14"))
     atr14_sma20 = _to_float(features_ltf.get("atr14_sma20"))
-    bb_upper = _to_float(features_ltf.get("bb_upper"), 0.0) or 0.0
-    bb_lower = _to_float(features_ltf.get("bb_lower"), 0.0) or 0.0
-    bb_mid = _to_float(features_ltf.get("bb_mid"), 0.0) or 0.0
+    bb_upper = _to_float(features_ltf.get("bb_upper"))
+    bb_lower = _to_float(features_ltf.get("bb_lower"))
+    bb_mid = _to_float(features_ltf.get("bb_mid"))
     bb_width = _to_float(features_ltf.get("bb_width"))
     bb_width_prev = _to_float(features_ltf.get("bb_width_prev"))
     volume_ratio = _to_float(features_ltf.get("volume_ratio"))
@@ -1114,7 +1316,7 @@ def make_decision(
         _insufficient("consec_above_ema50_prev", "T")
     if consec_below_ema50_prev is None or consec_below_ema50_prev < 0:
         _insufficient("consec_below_ema50_prev", "T")
-    if bb_upper <= 0 or bb_lower <= 0 or bb_mid <= 0:
+    if bb_upper is None or bb_upper <= 0 or bb_lower is None or bb_lower <= 0 or bb_mid is None or bb_mid <= 0:
         _insufficient("bb_20", "M")
     if ema200_htf is None or ema200_htf <= 0:
         _insufficient("ema200_1h", "TBM")
@@ -1328,6 +1530,7 @@ def make_decision(
         and close_prev > 0
         and close_ltf is not None
         and close_ltf > 0
+        and bb_lower is not None
         and bb_lower > 0
         and close_prev <= bb_lower
         and close_ltf > bb_lower
@@ -1337,6 +1540,7 @@ def make_decision(
         and close_prev > 0
         and close_ltf is not None
         and close_ltf > 0
+        and bb_upper is not None
         and bb_upper > 0
         and close_prev >= bb_upper
         and close_ltf < bb_upper
@@ -1681,7 +1885,7 @@ def make_decision(
         and squeeze_bias == "down"
     )
 
-    regime_detected, regime_explain = _compute_regime_state_5m({
+    regime_detected_internal, regime_explain = _compute_regime_state_5m({
         "close_ltf": close_ltf,
         "ema50_ltf": ema50_ltf,
         "atr14": atr14,
@@ -1709,6 +1913,8 @@ def make_decision(
         "consec_above_ema50": consec_above_ema50,
         "consec_below_ema50": consec_below_ema50,
     })
+    regime_detected = _legacy_regime_alias(regime_detected_internal)
+    regime_alias = regime_detected
 
     breakout_accept_bars = max(breakout_accept_bars, 1)
     impulse_long = breakout_long and volume_ratio is not None and volume_ratio >= regime_breakout_vol_min
@@ -1949,16 +2155,16 @@ def make_decision(
     pullback_regime_compatible = bool(
         htf_trend in ("up", "down")
         and (
-            regime_detected == "PULLBACK"
-            or regime_detected in ("TREND_CONTINUATION", "TREND_ACCEL")
-            or (regime_detected == "RANGE" and directional_context_material and pullback_geometry_present)
+            regime_detected_internal == "PULLBACK"
+            or regime_detected_internal in ("TREND_CONTINUATION_IMPULSE", "TREND_CONTINUATION_CONTEXT", "TREND_ACCEL")
+            or (regime_detected_internal == "RANGE" and directional_context_material and pullback_geometry_present)
         )
     )
-    if regime_detected == "PULLBACK":
+    if regime_detected_internal == "PULLBACK":
         pullback_regime_reason = "native_pullback_regime"
-    elif regime_detected in ("TREND_CONTINUATION", "TREND_ACCEL") and pullback_geometry_present:
+    elif regime_detected_internal in ("TREND_CONTINUATION_IMPULSE", "TREND_CONTINUATION_CONTEXT", "TREND_ACCEL") and pullback_geometry_present:
         pullback_regime_reason = "directional_transition_pullback"
-    elif regime_detected == "RANGE" and directional_context_material and pullback_geometry_present:
+    elif regime_detected_internal == "RANGE" and directional_context_material and pullback_geometry_present:
         pullback_regime_reason = "directional_range_override"
     else:
         pullback_regime_reason = "incompatible_regime"
@@ -2150,6 +2356,9 @@ def make_decision(
     selected_strategy = "NONE"
     eligible_strategies: List[str] = []
     strategy_block_reason = None
+    selection_block_reason = None
+    router_candidates: List[str] = []
+    post_gate_candidates: List[str] = []
     pending_entry_status = "NONE"
     
     # Extract HTF context for gating
@@ -2215,15 +2424,17 @@ def make_decision(
             tp_targets = []
             move_sl_to_be_after_tp1 = False
 
-    routing_regime = regime_detected
+    routing_regime = regime_detected_internal
     runtime = get_runtime_settings()
     allow_override = runtime.is_test or runtime.is_replay or runtime.is_offline or runtime.env != "production"
     override_regime = str(settings.get_str("ROUTING_REGIME_OVERRIDE", "") or "").strip().upper()
+    override_applied = False
+    override_reason = None
     if override_regime and allow_override:
         override_map = {
             "BREAKOUT_EXPANSION": "BREAKOUT_EXPANSION",
             "SQUEEZE_BREAK": "SQUEEZE_BREAK",
-            "TREND_CONTINUATION": "TREND_CONTINUATION",
+            "TREND_CONTINUATION": "TREND_CONTINUATION_CONTEXT",
             "TREND_ACCEL": "TREND_ACCEL",
             "PULLBACK": "PULLBACK",
             "RANGE": "RANGE",
@@ -2232,14 +2443,18 @@ def make_decision(
         }
         if override_regime in override_map:
             routing_regime = override_map[override_regime]
+            override_applied = True
+            override_reason = f"env_override:{override_regime}"
 
     if time_exit_signal:
+        router_candidates = ["TIME_EXIT"]
+        post_gate_candidates = ["TIME_EXIT"]
         eligible_strategies = ["TIME_EXIT"]
         selected_strategy = "TIME_EXIT"
         intent = "CLOSE"
         rule = selected_strategy
         router_debug = {
-            "regime_detected": routing_regime,
+            "regime_detected": _legacy_regime_alias(routing_regime),
             "strategies_for_regime": ["TIME_EXIT"],
             "enabled_strategies": ["TIME_EXIT"],
             "rejected_strategies": {},
@@ -2254,6 +2469,23 @@ def make_decision(
             "global_blocker": None,
             "hold_reason": None,
             "routing_deadlock": False,
+        }
+    elif missing_data_hard_block:
+        strategy_block_reason = "missing_data"
+        selection_block_reason = "MISSING_DATA"
+        router_debug = {
+            "regime_detected": _legacy_regime_alias(routing_regime),
+            "strategies_for_regime": [],
+            "enabled_strategies": [],
+            "rejected_strategies": {},
+            "strategy_evaluations": [],
+            "candidate_count": 0,
+            "evaluated_count": 0,
+            "selected_strategy": "NONE",
+            "global_blocker": "MISSING_DATA",
+            "hold_reason": "missing_data",
+            "routing_deadlock": False,
+            "hold_reason_summary": "missing_data",
         }
     else:
         all_strategy_priority = [
@@ -2284,7 +2516,16 @@ def make_decision(
                 "RANGE_MEANREV",
                 "RANGE_IN_TREND_LONG",
             ],
-            "TREND_CONTINUATION": [
+            "TREND_CONTINUATION_IMPULSE": [
+                "CONTINUATION",
+                "TREND_ACCEL",
+                "BREAKOUT_EXPANSION",
+                "PULLBACK_REENTRY",
+                "SQUEEZE_BREAK",
+                "RANGE_MEANREV",
+                "RANGE_IN_TREND_LONG",
+            ],
+            "TREND_CONTINUATION_CONTEXT": [
                 "CONTINUATION",
                 "TREND_ACCEL",
                 "BREAKOUT_EXPANSION",
@@ -2381,6 +2622,7 @@ def make_decision(
             ]
             base_priority = transitional_priority
         ordered_candidates = _ordered_unique(base_priority + all_strategy_priority)
+        router_candidates = list(ordered_candidates)
         eligible_strategies = []
         selected_strategy = "NONE"
         strategy_block_reason = None
@@ -2435,6 +2677,8 @@ def make_decision(
             else:
                 strategy_block_reason = "not_mapped_to_regime"
                 hold_reason = "no_candidates_available"
+            selection_block_reason = strategy_block_reason
+        post_gate_candidates = list(eligible_strategies)
 
         strategies_for_regime = list(ordered_candidates)
         rejected_strategies = {}
@@ -2449,7 +2693,7 @@ def make_decision(
                 else "unknown"
             )
         router_debug = {
-            "regime_detected": routing_regime,
+            "regime_detected": _legacy_regime_alias(routing_regime),
             "strategies_for_regime": strategies_for_regime,
             "enabled_strategies": list(eligible_strategies),
             "rejected_strategies": rejected_strategies,
@@ -2535,6 +2779,8 @@ def make_decision(
         tp = None
         rr = None
         strategy_block_reason = normalize_strategy_block_reason(global_blocker_reason)
+        selection_block_reason = global_blocker_reason
+        post_gate_candidates = []
         if "router_debug" in locals() and isinstance(router_debug, dict):
             router_debug["global_blocker"] = global_blocker_reason
             router_debug["hold_reason"] = "global_blocker_hold"
@@ -2588,6 +2834,8 @@ def make_decision(
             rr = None
             if strategy_block_reason is None:
                 strategy_block_reason = "pending_entry"
+            selection_block_reason = "pending_entry"
+            post_gate_candidates = []
             if "router_debug" in locals() and isinstance(router_debug, dict):
                 router_debug["hold_reason"] = "pending_entry"
                 router_debug["selected_strategy"] = selected_strategy
@@ -2612,6 +2860,8 @@ def make_decision(
             rr = None
             if strategy_block_reason is None:
                 strategy_block_reason = normalize_strategy_block_reason("EV:low")
+            selection_block_reason = "EV:low"
+            post_gate_candidates = []
             if "router_debug" in locals() and isinstance(router_debug, dict):
                 router_debug["hold_reason"] = "ev_gate"
                 router_debug["selected_strategy"] = selected_strategy
@@ -2656,6 +2906,7 @@ def make_decision(
     sl = execution_result["sl"]
     tp = execution_result["tp"]
     rr = execution_result["rr"]
+    plan_build_failed = bool(execution_result.get("plan_build_failed"))
     if execution_result.get("rule"):
         rule = execution_result["rule"]
     if entry_mode == "EARLY":
@@ -2676,6 +2927,99 @@ def make_decision(
         elif execution_decision == "HOLD_LOW_QUALITY" and "PX:low_quality" not in reject_reasons:
             reject_reasons.append("PX:low_quality")
 
+    predictive_bias = str(predictive_result.get("predictive_bias") or "NEUTRAL")
+    predictive_state = str(predictive_result.get("predictive_state") or "NEUTRAL")
+    confidence_tier = str(predictive_result.get("confidence_tier") or "LOW")
+    predictive_authority = _derive_predictive_authority(
+        predictive_bias=predictive_bias,
+        predictive_state=predictive_state,
+        confidence_tier=confidence_tier,
+        invalidation_reasons=list(predictive_result.get("invalidation_reasons") or []),
+    )
+    directional_intent = _derive_directional_intent(
+        intent=intent,
+        predictive_bias=predictive_bias,
+        legacy_intent=legacy_intent,
+    )
+    hold_reason = _derive_hold_reason(
+        execution_decision=execution_decision,
+        predictive_bias=predictive_bias,
+        plan_build_failed=plan_build_failed,
+    )
+    event_hard_block_reason = (
+        "event_cooldown_active"
+        if event_cooldown_remaining > 0
+        else ("event_chaotic" if predictive_result.get("event_classification") == "EVENT_CHAOTIC" else None)
+    )
+    event_gate = {
+        "event_detected_now": bool(event_detected),
+        "event_type": (
+            None
+            if str(predictive_result.get("event_classification") or "NONE") == "NONE"
+            else str(predictive_result.get("event_classification"))
+        ),
+        "cooldown_active": bool(event_cooldown_remaining > 0),
+        "cooldown_remaining": int(event_cooldown_remaining or 0),
+        "hard_block": bool(event_hard_block),
+        "hard_block_reason": event_hard_block_reason,
+    }
+    late_entry_context = {
+        "metric": (predictive_result.get("metrics") or {}).get("distance_to_reclaim"),
+        "threshold": settings.get_float("PREDICTIVE_OVEREXTENSION_HOLD_ATR", 2.20),
+        "reason": (
+            "event"
+            if predictive_result.get("event_classification") == "EVENT_DIRECTIONAL"
+            else (
+                "trend_accel"
+                if predictive_state in ("BREAKDOWN_RISK", "BREAKOUT_RISK", "EVENT_DIRECTIONAL")
+                else ("exhaustion" if bool((predictive_result.get("metrics") or {}).get("late_entry")) else "unknown")
+            )
+        ),
+    }
+    regime_context = {
+        "macro_regime": regime,
+        "detected_micro_regime": regime_detected_internal,
+        "routing_regime": routing_regime,
+        "override_applied": bool(override_applied),
+        "override_reason": override_reason,
+    }
+    confirmation_components = _derive_confirmation_components(
+        predictive_bias=predictive_bias,
+        selected_strategy=selected_strategy_for_signal if "selected_strategy_for_signal" in locals() else selected_strategy,
+        validation_summary=validation_summary,
+        confirmation_ok=confirmation_ok,
+        intent=intent,
+        entry=entry,
+        sl=sl,
+        rr=rr,
+        min_rr=base_min_rr,
+    )
+    hard_block_reason = None
+    if missing_data_hard_block:
+        hard_block_reason = "MISSING_DATA"
+    elif any(str(reason).startswith("already_in_position") for reason in reject_reasons):
+        hard_block_reason = "already_in_position"
+    elif selection_block_reason in ("pending_entry", "EV:low"):
+        hard_block_reason = selection_block_reason
+    elif (router_debug or {}).get("hold_reason") == "global_blocker_hold":
+        hard_block_reason = str((router_debug or {}).get("global_blocker") or "global_blocker_hold")
+
+    authority_hard_block = bool(
+        hard_block_reason
+        and execution_decision not in ("HOLD_EVENT", "HOLD_LATE", "HOLD_LOW_QUALITY")
+        and not str(execution_decision).startswith("OPEN_")
+        and execution_decision != "CLOSE"
+    )
+    final_authority_stage = _derive_final_authority_stage(
+        execution_decision=execution_decision,
+        time_exit_signal=bool(time_exit_signal),
+        event_reject=execution_decision == "HOLD_EVENT",
+        late_reject=execution_decision == "HOLD_LATE",
+        predictive_early=str(execution_decision).endswith("_EARLY"),
+        legacy_confirmed=(str(execution_decision).endswith("_CONFIRMED") or execution_decision == "CLOSE"),
+        hard_block=authority_hard_block,
+    )
+
     if intent == "HOLD":
         active_rejects: List[str] = []
         if routing_regime == "COMPRESSION":
@@ -2689,7 +3033,7 @@ def make_decision(
                 code = evaluation.get("rejection_reason")
                 if code is not None and str(code).strip():
                     active_rejects.append(str(code))
-        if routing_regime != regime_detected:
+        if _legacy_regime_alias(routing_regime) != regime_detected:
             active_rejects.append("M:regime")
 
         for code in active_rejects:
@@ -2726,7 +3070,7 @@ def make_decision(
                             f"anti_reversal_blocks_{anti_reversal_active_side.lower()}_entries"
                         )
                 router_debug.setdefault("hold_reason_summary", (
-                    f"{regime_detected}:no_candidate_passed"
+                    f"{regime_alias}:no_candidate_passed"
                     if router_debug.get("hold_reason") == "all_strategies_failed"
                     else str(router_debug.get("hold_reason") or "hold")
                 ))
@@ -2735,9 +3079,8 @@ def make_decision(
         selected_strategy_for_signal = "TIME_EXIT"
     else:
         selected_strategy_for_signal = str(selected_strategy or "NONE")
-    predictive_bias = str(predictive_result.get("predictive_bias") or "NEUTRAL")
-    predictive_state = str(predictive_result.get("predictive_state") or "NEUTRAL")
-    confidence_tier = str(predictive_result.get("confidence_tier") or "LOW")
+    if eligible_strategies and selected_strategy_for_signal == "NONE" and selection_block_reason is None:
+        selection_block_reason = strategy_block_reason or str((router_debug or {}).get("hold_reason") or "selection_blocked")
     prior_bias = str((decision_state or {}).get("last_predictive_bias") or "NEUTRAL")
     prior_predictive_same_side_age = 1 if predictive_bias in ("LONG", "SHORT") and predictive_bias == prior_bias else 0
     failed_reclaim_unconverted = bool(
@@ -2752,8 +3095,18 @@ def make_decision(
 
     decision = {
         "intent": intent,
+        "directional_intent": directional_intent,
         "execution_decision": execution_decision,
+        "execution_outcome": execution_decision,
         "entry_mode": entry_mode,
+        "hold_reason": hold_reason,
+        "final_authority_stage": final_authority_stage,
+        "predictive_authority": predictive_authority,
+        "missing_fields": missing_fields,
+        "decision_engine_outcome": execution_decision,
+        "runtime_profile_version": "decision_semantics_v2",
+        "timeframe_decision": str((payload.get("market_identity") or {}).get("timeframe") or "unknown"),
+        "logic_family": "REGIME_ROUTER_PREDICTIVE",
         "reject_reasons": reject_reasons if reject_reasons else [],
         "strategy": "REGIME_MULTI",
         "signal": {
@@ -2761,7 +3114,9 @@ def make_decision(
             "direction": direction,
             "regime": regime,
             "regime_detected": regime_detected,
-            "regime_used_for_routing": routing_regime,
+            "regime_used_for_routing": _legacy_regime_alias(routing_regime),
+            "regime_alias": regime_alias,
+            "regime_context": regime_context,
             "trend_strength": trend_strength,
             "trend_stable_long": trend_stable_long,
             "trend_stable_short": trend_stable_short,
@@ -2769,11 +3124,16 @@ def make_decision(
             "trend_structure_short_ok": structure_short_ok,
             "selected_strategy": selected_strategy_for_signal,
             "eligible_strategies": eligible_strategies,
+            "router_candidates": router_candidates,
+            "post_gate_candidates": post_gate_candidates,
             "strategy_block_reason": strategy_block_reason,
+            "selection_block_reason": selection_block_reason,
             "router_debug": router_debug,
             "routing_deadlock": bool((router_debug or {}).get("routing_deadlock")),
             "hold_reason": (router_debug or {}).get("hold_reason"),
             "global_blocker": (router_debug or {}).get("global_blocker"),
+            "hard_block_reason": hard_block_reason,
+            "missing_fields": missing_fields,
             "stability_score": stability_score,
             "stable_ok": stable_ok,
             "stable_soft": stable_soft,
@@ -2805,6 +3165,7 @@ def make_decision(
             "event_detected": event_detected,
             "event_block": event_block,
             "event_cooldown_remaining": event_cooldown_remaining,
+            "event_gate": event_gate,
             "trend_accel_long_ok": trend_accel_long_ok,
             "trend_accel_short_ok": trend_accel_short_ok,
             "squeeze_break_long_ok": squeeze_break_long_ok,
@@ -2912,44 +3273,45 @@ def make_decision(
             "reentry_short": reentry_short,
             "breakout_long": breakout_long,
             "breakout_short": breakout_short,
-            "volume_ratio": volume_ratio or 0.0,
-            "candle_body_ratio": candle_body_ratio or 0.0,
-            "spread_pct": spread_pct or 0.0,
-            "atr": atr14 or 0.0,
-            "atr14_htf": atr14_htf or 0.0,
-            "wick_ratio": wick_ratio_ltf or 0.0,
-            "bb_width_atr": bb_width_atr or 0.0,
+            "volume_ratio": volume_ratio,
+            "candle_body_ratio": candle_body_ratio,
+            "spread_pct": spread_pct,
+            "atr": atr14,
+            "atr14_htf": atr14_htf,
+            "wick_ratio": wick_ratio_ltf,
+            "bb_width_atr": bb_width_atr,
             "regime_explain": regime_explain,
             "hold_reason_summary": (router_debug or {}).get("hold_reason_summary"),
-            "close_ltf": close_ltf or 0.0,
-            "close_prev_ltf": close_prev or 0.0,
-            "ema50_ltf": ema50_ltf or 0.0,
-            "ema50_prev_12": ema50_prev_12 or 0.0,
-            "ema120_ltf": ema120_ltf or 0.0,
-            "rsi14_ltf": rsi14 or 0.0,
-            "rsi14_prev_ltf": rsi14_prev or 0.0,
+            "close_ltf": close_ltf,
+            "close_prev_ltf": close_prev,
+            "ema50_ltf": ema50_ltf,
+            "ema50_prev_12": ema50_prev_12,
+            "ema120_ltf": ema120_ltf,
+            "rsi14_ltf": rsi14,
+            "rsi14_prev_ltf": rsi14_prev,
             "bb_upper": bb_upper,
             "bb_lower": bb_lower,
             "bb_mid": bb_mid,
-            "donchian_high_20": donchian_high_20 or 0.0,
-            "donchian_low_20": donchian_low_20 or 0.0,
-            "donchian_high_240": donchian_high_240 or 0.0,
-            "donchian_low_240": donchian_low_240 or 0.0,
-            "close_htf": close_htf or 0.0,
-            "ema200_htf": ema200_htf or 0.0,
-            "ema_fast_htf": ema_fast_htf or 0.0,
-            "ema200_prev_n": ema200_prev_n or 0.0,
-            "ema200_slope_norm": ema200_slope_norm or 0.0,
-            "consec_above_ema200": consec_above_ema200 or 0.0,
-            "consec_below_ema200": consec_below_ema200 or 0.0,
-            "consec_higher_close": consec_higher_close or 0.0,
-            "consec_lower_close": consec_lower_close or 0.0,
-            "rsi14_htf": rsi14_htf or 0.0,
-            "rsi14_htf_prev": rsi14_htf_prev or 0.0,
+            "donchian_high_20": donchian_high_20,
+            "donchian_low_20": donchian_low_20,
+            "donchian_high_240": donchian_high_240,
+            "donchian_low_240": donchian_low_240,
+            "close_htf": close_htf,
+            "ema200_htf": ema200_htf,
+            "ema_fast_htf": ema_fast_htf,
+            "ema200_prev_n": ema200_prev_n,
+            "ema200_slope_norm": ema200_slope_norm,
+            "consec_above_ema200": consec_above_ema200,
+            "consec_below_ema200": consec_below_ema200,
+            "consec_higher_close": consec_higher_close,
+            "consec_lower_close": consec_lower_close,
+            "rsi14_htf": rsi14_htf,
+            "rsi14_htf_prev": rsi14_htf_prev,
             "predictive": {
                 "predictive_bias": predictive_bias,
                 "predictive_state": predictive_state,
                 "confidence_tier": confidence_tier,
+                "predictive_authority": predictive_authority,
                 "trigger_candidates": list(predictive_result.get("trigger_candidates") or []),
                 "invalidation_reasons": list(predictive_result.get("invalidation_reasons") or []),
                 "market_state_prev": predictive_result.get("market_state_prev"),
@@ -2960,6 +3322,7 @@ def make_decision(
             },
             "validation": {
                 "confirmation_quality": validation_summary.get("confirmation_quality"),
+                "confirmation_components": confirmation_components,
                 "supporting_strategies": list(validation_summary.get("supporting_strategies") or []),
                 "opposing_strategies": list(validation_summary.get("opposing_strategies") or []),
                 "neutral_labels": list(validation_summary.get("neutral_labels") or []),
@@ -2972,9 +3335,18 @@ def make_decision(
                 "entry_mode": entry_mode,
                 "size_multiplier": execution_size_multiplier,
                 "event_hard_block": event_hard_block,
+                "final_authority_stage": final_authority_stage,
+                "hold_reason": hold_reason,
                 "late_entry": bool((predictive_result.get("metrics") or {}).get("late_entry")),
                 "min_confidence": "MEDIUM",
             },
+            "late_entry_context": late_entry_context,
+            "confirmation_components": confirmation_components,
+            "final_authority_stage": final_authority_stage,
+            "directional_intent": directional_intent,
+            "execution_outcome": execution_decision,
+            "execution_hold_reason": hold_reason,
+            "predictive_authority": predictive_authority,
             "thresholds": {
                 "trend_strength_min": trend_strength_min,
                 "regime_breakout_vol_min": regime_breakout_vol_min,
@@ -3134,13 +3506,16 @@ def make_decision(
     decision["signal"]["invalidation_reasons"] = list(predictive_result.get("invalidation_reasons") or [])
     decision["signal"]["event_classification"] = predictive_result.get("event_classification")
     decision["signal"]["execution_decision"] = execution_decision
+    decision["signal"]["execution_outcome"] = execution_decision
     decision["signal"]["entry_mode"] = entry_mode
     decision["signal"]["execution_size_multiplier"] = execution_size_multiplier
     decision["signal"]["confirmation_quality"] = validation_summary.get("confirmation_quality")
+    decision["signal"]["confirmation_components"] = confirmation_components
     decision["signal"]["supporting_strategies"] = list(validation_summary.get("supporting_strategies") or [])
     decision["signal"]["opposing_strategies"] = list(validation_summary.get("opposing_strategies") or [])
     decision["signal"]["validator_reject_map"] = dict(validation_summary.get("validator_reject_map") or {})
     decision["signal"]["event_hard_block"] = event_hard_block
+    decision["signal"]["hard_block_reason"] = hard_block_reason
 
     decision["state_update"] = {
         "pending_entry": pending_state,
