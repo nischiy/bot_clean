@@ -215,7 +215,14 @@ def _startup_reconcile(logger: logging.Logger, symbol: str, *, require_tp: bool)
         raise RuntimeError(f"startup_reconcile_import_error: {e}") from e
 
     exe = ExecutionService(logger=logger)
-    positions = exe.fetch_positions()
+    positions_raw = exe.fetch_positions()
+    # Filter to the configured symbol and only entries with an actual open position.
+    # Binance /fapi/v2/positionRisk returns every symbol (all 600+ with positionAmt=0);
+    # passing the unfiltered list causes false-positive kill-switch fires on startup.
+    positions = [
+        p for p in positions_raw
+        if p.get("symbol") == symbol and abs(float(p.get("positionAmt", 0) or 0)) > 0
+    ]
     try:
         open_orders = exe.get_open_orders(symbol)
     except Exception as e:
@@ -304,8 +311,15 @@ def _run_once_contracts(app: "TraderApp") -> None:
 
     exe = ExecutionService(logger=app.log)
     try:
-        exchange_positions = exe.fetch_positions()
-        has_open_position = any(float(p.get("positionAmt", 0) or 0) != 0.0 for p in exchange_positions)
+        exchange_positions_raw = exe.fetch_positions()
+        # Filter to the configured symbol and only entries with an actual open position.
+        # Binance /fapi/v2/positionRisk returns every symbol (all 600+ with positionAmt=0);
+        # passing the unfiltered list causes false-positive kill-switch fires.
+        exchange_positions = [
+            p for p in exchange_positions_raw
+            if p.get("symbol") == app.symbol and abs(float(p.get("positionAmt", 0) or 0)) > 0
+        ]
+        has_open_position = bool(exchange_positions)
         open_orders = exe.get_open_orders(app.symbol) if has_open_position else []
     except Exception as e:
         kill("exit_reconcile_error", {"symbol": app.symbol, "error": str(e)})
